@@ -167,6 +167,7 @@ void RollbackMgrPostgreSQL::initStatements()
 	prepareStatement("actor_list", "SELECT id, name FROM actor");
 	prepareStatement("node_list", "SELECT id, name FROM node");
 
+	// Use a single statement for "get or create". This avoids select+insert races.
 	prepareStatement("actor_upsert",
 		"INSERT INTO actor(name) VALUES($1) "
 		"ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name "
