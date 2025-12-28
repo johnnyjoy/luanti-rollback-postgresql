@@ -5,7 +5,6 @@
 #include "server/rollback.h"
 
 #include <ctime>
-#include <stdexcept>
 
 #include "gamedef.h"
 #include "util/numeric.h"
@@ -17,18 +16,16 @@ RollbackMgr::RollbackMgr(IGameDef *gamedef_) :
 
 void RollbackMgr::reportAction(const RollbackAction &action_)
 {
-	// Ignore if not important
 	if (!action_.isImportant(gamedef))
 		return;
 
 	RollbackAction action = action_;
 	action.unix_time = time(0);
 
-	// Figure out actor
 	action.actor = current_actor;
 	action.actor_is_guess = current_actor_is_guess;
 
-	if (action.actor.empty()) { // If actor is not known, find out suspect or cancel
+	if (action.actor.empty()) {
 		v3s16 p;
 		if (!action.getPosition(&p))
 			return;
@@ -59,29 +56,25 @@ void RollbackMgr::setActor(const std::string &actor, bool is_guess)
 	current_actor_is_guess = is_guess;
 }
 
-std::string RollbackMgr::getSuspect(v3s16 p, float nearness_shortcut,
-		float min_nearness)
+std::string RollbackMgr::getSuspect(v3s16 p, float nearness_shortcut, float min_nearness)
 {
-	if (!current_actor.empty()) {
+	if (!current_actor.empty())
 		return current_actor;
-	}
+
 	time_t cur_time = time(0);
 	time_t first_time = cur_time - (100 - min_nearness);
 	RollbackAction likely_suspect;
 	float likely_suspect_nearness = 0;
 
 	for (auto i = action_latest_buffer.rbegin(); i != action_latest_buffer.rend(); ++i) {
-		if (i->unix_time < first_time) {
+		if (i->unix_time < first_time)
 			break;
-		}
-		if (i->actor.empty()) {
+		if (i->actor.empty())
 			continue;
-		}
-		// Find position of suspect or continue
+
 		v3s16 suspect_p;
-		if (!i->getPosition(&suspect_p)) {
+		if (!i->getPosition(&suspect_p))
 			continue;
-		}
 
 		float f = getSuspectNearness(i->actor_is_guess, suspect_p, i->unix_time, p, cur_time);
 		if (f >= min_nearness && f > likely_suspect_nearness) {
@@ -91,11 +84,10 @@ std::string RollbackMgr::getSuspect(v3s16 p, float nearness_shortcut,
 				break;
 		}
 	}
-	// No likely suspect was found
-	if (likely_suspect_nearness == 0) {
+
+	if (likely_suspect_nearness == 0)
 		return "";
-	}
-	// Likely suspect was found
+
 	return likely_suspect.actor;
 }
 
@@ -115,9 +107,9 @@ void RollbackMgr::flushBufferContents()
 std::list<RollbackAction> RollbackMgr::getNodeActors(
 		v3s16 pos, int range, time_t seconds, int limit)
 {
+	flush();
 	time_t cur_time = time(0);
 	time_t first_time = cur_time - seconds;
-	flush();
 	return getActionsSince_range(first_time, pos, range, limit);
 }
 
@@ -135,24 +127,19 @@ std::list<RollbackAction> RollbackMgr::getRevertActions(
 float RollbackMgr::getSuspectNearness(bool is_guess, v3s16 suspect_p,
 		time_t suspect_t, v3s16 action_p, time_t action_t)
 {
-	// Suspect cannot cause things in the past
-	if (action_t < suspect_t) {
+	if (action_t < suspect_t)
 		return 0;
-	}
-	// Start from 100
+
 	int f = 100;
-	// Distance (1 node = -x points)
 	f -= POINTS_PER_NODE * intToFloat(suspect_p, 1).getDistanceFrom(intToFloat(action_p, 1));
-	// Time (1 second = -x points)
 	f -= 1 * (action_t - suspect_t);
-	// If is a guess, halve the points
-	if (is_guess) {
+
+	if (is_guess)
 		f /= 2;
-	}
-	// Limit to 0
-	if (f < 0) {
+
+	if (f < 0)
 		f = 0;
-	}
+
 	return f;
 }
 
@@ -161,30 +148,31 @@ void RollbackMgr::addActionInternal(const RollbackAction &action)
 	action_todisk_buffer.push_back(action);
 	action_latest_buffer.push_back(action);
 
+	// Keep only a bounded tail for suspect calculations
+	while (action_latest_buffer.size() > BUFFER_LIMIT)
+		action_latest_buffer.pop_front();
+
 	// Flush to disk sometimes
 	if (action_todisk_buffer.size() >= BUFFER_LIMIT)
 		flush();
-	// Cut off latest log sometimes
-	while (action_latest_buffer.size() >= BUFFER_LIMIT)
-		action_latest_buffer.pop_front();
 }
 
-void RollbackMgr::parseNodemetaLocation(const std::string &loc, int &x, int &y, int &z)
+bool RollbackMgr::parseNodemetaLocation(const std::string &loc, int &x, int &y, int &z)
 {
 	// Format: "nodemeta:x,y,z"
 	if (loc.size() < 9 || loc.compare(0, 9, "nodemeta:") != 0)
-		throw std::invalid_argument("Invalid nodemeta location format");
+		return false;
 
 	std::string::size_type p1 = loc.find(':') + 1;
 	std::string::size_type p2 = loc.find(',');
 	if (p2 == std::string::npos)
-		throw std::invalid_argument("Invalid nodemeta location format");
+		return false;
 
 	std::string x_str = loc.substr(p1, p2 - p1);
 	p1 = p2 + 1;
 	p2 = loc.find(',', p1);
 	if (p2 == std::string::npos)
-		throw std::invalid_argument("Invalid nodemeta location format");
+		return false;
 
 	std::string y_str = loc.substr(p1, p2 - p1);
 	std::string z_str = loc.substr(p2 + 1);
@@ -192,4 +180,8 @@ void RollbackMgr::parseNodemetaLocation(const std::string &loc, int &x, int &y, 
 	x = atoi(x_str.c_str());
 	y = atoi(y_str.c_str());
 	z = atoi(z_str.c_str());
+
+	return true;
 }
+
+
