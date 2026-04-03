@@ -127,12 +127,11 @@ void MapDatabaseMemcachedCache::logMemcachedError(const char *what, memcached_re
 
 void MapDatabaseMemcachedCache::cacheSet(const std::string &key, std::string_view data)
 {
-	memcached_return_t err;
-	memcached_set(m_memc, key.data(), key.size(), data.data(), data.size(), MAP_MEMCACHED_TTL_S,
-			static_cast<uint32_t>(0), &err);
-	if (err != MEMCACHED_SUCCESS) {
+	memcached_return_t rc = memcached_set(m_memc, key.data(), key.size(), data.data(),
+			data.size(), MAP_MEMCACHED_TTL_S, static_cast<uint32_t>(0));
+	if (rc != MEMCACHED_SUCCESS) {
 		// Item too large, transient errors, etc.: degrade to DB-only for this block.
-		logMemcachedError("memcached_set", err);
+		logMemcachedError("memcached_set", rc);
 	}
 }
 

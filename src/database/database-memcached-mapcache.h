@@ -10,9 +10,9 @@
 
 #include <memory>
 #include <string>
-#include "database.h"
+#include <libmemcached/memcached.h>
 
-struct memcached_st;
+#include "database.h"
 
 class MapDatabaseMemcachedCache : public MapDatabase
 {
