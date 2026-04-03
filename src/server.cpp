@@ -28,6 +28,9 @@
 #include "servermap.h"
 #include "server/player_sao.h"
 #include "server/rollback_sqlite3.h"
+#if USE_POSTGRESQL
+#include "server/rollback_postgresql.h"
+#endif
 #include "server/serveractiveobject.h"
 #include "server/serverinventorymgr.h"
 #include "server/serverlist.h"
@@ -479,6 +482,20 @@ IRollbackManager *Server::createRollbackManager()
 	if (backend == "sqlite3") {
 		verbosestream << "Rollback: using backend \"sqlite3\"" << std::endl;
 		return new RollbackMgrSQLite3(m_path_world, this);
+	}
+
+	if (backend == "postgresql") {
+#if USE_POSTGRESQL
+		std::string connect_string;
+		world_mt.getNoEx("pgsql_rollback_connection", connect_string);
+		if (connect_string.empty())
+			throw ServerError("Rollback backend \"postgresql\" requires pgsql_rollback_connection in world.mt.");
+
+		// Do not log rollback connection details.
+		verbosestream << "Rollback: using backend \"postgresql\"" << std::endl;
+
+		return new RollbackMgrPostgreSQL(connect_string, this);
+#endif
 	}
 
 	auto supported = getRollbackBackends();
@@ -4461,6 +4478,9 @@ std::vector<std::string> Server::getRollbackBackends()
 {
 	std::vector<std::string> ret;
 	ret.emplace_back("sqlite3");
+#if USE_POSTGRESQL
+	ret.emplace_back("postgresql");
+#endif
 	return ret;
 }
 

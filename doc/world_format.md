@@ -163,7 +163,7 @@ content. The convention is `<modname>.<setting>`.
     readonly_backend = sqlite3    - optionally read-only seed DB (DB file _must_ be located in "readonly" subfolder)
     auth_backend = sqlite3        - which DB backend to use for authentication data
     mod_storage_backend = sqlite3 - which DB backend to use for mod storage
-    rollback_backend = sqlite3    - which DB backend to use for rollback. If unset, defaults to `sqlite3`.
+    rollback_backend = sqlite3    - which DB backend to use for rollback (sqlite3, postgresql). If unset, defaults to `sqlite3`.
     load_mod_<mod> = false        - whether <mod> is to be loaded in this world
     blocksize = 32                - mapblock size, only written if it's non-standard (16)
 
@@ -185,6 +185,7 @@ For `load_mod_<mod>`, the possible values are:
     pgsql_player_connection = (same parameters as above)
     pgsql_auth_connection = (same parameters as above)
     pgsql_mod_storage_connection = (same parameters as above)
+    pgsql_rollback_connection = (same parameters as above)  - required when `rollback_backend = postgresql`
 
 `Redis` backend specific settings:
 
