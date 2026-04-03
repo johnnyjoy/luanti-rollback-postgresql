@@ -212,6 +212,22 @@ if(ENABLE_REDIS)
 endif(ENABLE_REDIS)
 
 
+OPTION(ENABLE_MEMCACHED "Enable optional Memcached map block read cache (libmemcached)" FALSE)
+set(USE_MEMCACHED FALSE)
+
+if(ENABLE_MEMCACHED)
+	find_library(MEMCACHED_LIBRARY NAMES memcached)
+	find_path(MEMCACHED_INCLUDE_DIR libmemcached/memcached.h)
+	if(MEMCACHED_LIBRARY AND MEMCACHED_INCLUDE_DIR)
+		set(USE_MEMCACHED TRUE)
+		message(STATUS "Memcached map cache enabled.")
+		include_directories(${MEMCACHED_INCLUDE_DIR})
+	else()
+		message(STATUS "Memcached library not found!")
+	endif()
+endif(ENABLE_MEMCACHED)
+
+
 find_package(SQLite3 REQUIRED)
 
 
@@ -837,6 +853,9 @@ if(BUILD_SERVER)
 	endif()
 	if (USE_REDIS)
 		target_link_libraries(${PROJECT_NAME}server ${REDIS_LIBRARY})
+	endif()
+	if (USE_MEMCACHED)
+		target_link_libraries(${PROJECT_NAME}server ${MEMCACHED_LIBRARY})
 	endif()
 	if (USE_PROMETHEUS)
 		target_link_libraries(${PROJECT_NAME}server ${PROMETHEUS_LIBRARIES})

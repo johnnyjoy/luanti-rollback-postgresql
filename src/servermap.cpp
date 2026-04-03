@@ -37,6 +37,9 @@
 #if USE_POSTGRESQL
 #include "database/database-postgresql.h"
 #endif
+#if USE_MEMCACHED
+#include "database/database-memcached-mapcache.h"
+#endif
 
 /*
 	Helpers
@@ -77,6 +80,17 @@ ServerMap::ServerMap(const std::string &savedir, IGameDef *gamedef,
 	}
 	std::string backend = conf.get("backend");
 	m_db.dbase = createDatabase(backend, savedir, conf);
+#if USE_MEMCACHED
+	{
+		std::string memc_conn;
+		if (conf.getNoEx("memcached_map_connection", memc_conn) && !memc_conn.empty()) {
+			std::string memc_ns;
+			conf.getNoEx("memcached_map_namespace", memc_ns);
+			m_db.dbase = tryWrapMapDatabaseMemcached(
+					m_db.dbase, savedir, memc_conn, memc_ns);
+		}
+	}
+#endif
 	if (conf.exists("readonly_backend")) {
 		std::string readonly_dir = savedir + DIR_DELIM + "readonly";
 		m_db.dbase_ro = createDatabase(conf.get("readonly_backend"), readonly_dir, conf);

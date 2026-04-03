@@ -192,6 +192,20 @@ For `load_mod_<mod>`, the possible values are:
     redis_port = 6379          - (optional) Connection port
     redis_password = hunter2   - (optional) Server password
 
+Optional Memcached map block cache (when Luanti is built with Memcached support):
+
+This does **not** replace the map database; it adds an optional read-through/write-through
+cache in front of the configured `backend`. Keys are namespaced per world (SHA-256 of the
+canonical absolute save path, hex-encoded) unless overridden.
+
+    memcached_map_connection = 127.0.0.1:11211   - One or more servers, comma-separated (host:port)
+    memcached_map_namespace = myprefix           - (optional) Override the automatic per-world key prefix
+
+Cached entries use a fixed TTL of 24 hours. The read-only seed database (`readonly_backend`) is
+not wrapped by this cache in the current version. Do not point multiple independent worlds at the
+same Memcached namespace unless you intend to share cache entries; concurrent writers to the same
+world through different servers can still corrupt map data—this cache does not change that.
+
 # Player File Format
 
 Should be pretty self-explanatory.
