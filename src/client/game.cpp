@@ -18,9 +18,6 @@
 
 #ifdef ENABLE_RMLUI_SPIKE
 #include <RmlUi/Core.h>
-namespace {
-bool g_rmlui_spike_inited = false;
-}
 #endif
 #include "content_cao.h"
 #include "content/subgames.h"
@@ -402,14 +399,18 @@ Game::Game() :
 Game::~Game()
 {
 #ifdef ENABLE_RMLUI_SPIKE
-	if (m_rmlui_context) {
-		Rml::RemoveContext("main");
-		m_rmlui_context = nullptr;
-		m_rmlui_document = nullptr;
+	if (m_rml_document) {
+		m_rml_document->Close();
+		m_rml_document = nullptr;
 	}
-	if (g_rmlui_spike_inited) {
+	if (m_rml_context) {
+		m_rml_context->Update();
+		Rml::RemoveContext("main");
+		m_rml_context = nullptr;
+	}
+	if (m_rml_initialized) {
 		Rml::Shutdown();
-		g_rmlui_spike_inited = false;
+		m_rml_initialized = false;
 	}
 #endif
 	delete client;
@@ -444,17 +445,25 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 		ChatBackend *chat_backend)
 {
 #ifdef ENABLE_RMLUI_SPIKE
-	if (!g_rmlui_spike_inited) {
+	if (!m_rml_initialized) {
 		if (!Rml::Initialise()) {
 			error_message = "RmlUi spike: Rml::Initialise() failed";
 			return false;
 		}
-		g_rmlui_spike_inited = true;
+		m_rml_initialized = true;
 	}
 
-	m_rmlui_context = Rml::CreateContext("main", Rml::Vector2i(800, 600));
-	if (!m_rmlui_context) {
+	{
+		const int sw = static_cast<int>(g_settings->getU16("screen_w"));
+		const int sh = static_cast<int>(g_settings->getU16("screen_h"));
+		const int w = (sw > 0) ? sw : 800;
+		const int h = (sh > 0) ? sh : 600;
+		m_rml_context = Rml::CreateContext("main", Rml::Vector2i(w, h));
+	}
+	if (!m_rml_context) {
 		error_message = "RmlUi spike: Rml::CreateContext(\"main\") failed";
+		Rml::Shutdown();
+		m_rml_initialized = false;
 		return false;
 	}
 
@@ -465,15 +474,17 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 		"</body>\n"
 		"</rml>";
 
-	m_rmlui_document = m_rmlui_context->LoadDocumentFromMemory(
+	m_rml_document = m_rml_context->LoadDocumentFromMemory(
 			rmlui_spike_document, "rmlui-spike://memory");
-	if (!m_rmlui_document) {
+	if (!m_rml_document) {
 		error_message = "RmlUi spike: LoadDocumentFromMemory failed";
 		Rml::RemoveContext("main");
-		m_rmlui_context = nullptr;
+		m_rml_context = nullptr;
+		Rml::Shutdown();
+		m_rml_initialized = false;
 		return false;
 	}
-	m_rmlui_document->Show();
+	m_rml_document->Show();
 #endif
 
 	// "cache"
@@ -3439,8 +3450,9 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 	ZoneScoped;
 	TimeTaker tt_update("Game::updateFrame()");
 #ifdef ENABLE_RMLUI_SPIKE
-	if (m_rmlui_context)
-		m_rmlui_context->Update();
+	// TODO: VERIFY: same per-frame cadence as gameplay (see Game::run loop).
+	if (m_rml_context)
+		m_rml_context->Update();
 #endif
 	LocalPlayer *player = client->getEnv().getLocalPlayer();
 

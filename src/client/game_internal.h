@@ -407,7 +407,8 @@ private:
 	float m_shutdown_progress = 0.0f;
 
 #ifdef ENABLE_RMLUI_SPIKE
-	Rml::Context *m_rmlui_context = nullptr;
-	Rml::ElementDocument *m_rmlui_document = nullptr;
+	Rml::Context *m_rml_context = nullptr;
+	Rml::ElementDocument *m_rml_document = nullptr;
+	bool m_rml_initialized = false;
 #endif
 };
