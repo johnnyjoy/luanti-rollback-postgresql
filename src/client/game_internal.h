@@ -23,6 +23,13 @@
 #include "sky.h"
 #include "util/pointedthing.h"
 
+#ifdef ENABLE_RMLUI_SPIKE
+namespace Rml {
+class Context;
+class ElementDocument;
+}
+#endif
+
 /* DO NOT INCLUDE THIS FROM OUTSIDE GAME.CPP */
 
 class Game;
@@ -398,4 +405,9 @@ private:
 #endif
 
 	float m_shutdown_progress = 0.0f;
+
+#ifdef ENABLE_RMLUI_SPIKE
+	Rml::Context *m_rmlui_context = nullptr;
+	Rml::ElementDocument *m_rmlui_document = nullptr;
+#endif
 };
