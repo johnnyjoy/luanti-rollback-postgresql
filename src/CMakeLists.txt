@@ -781,6 +781,11 @@ if(BUILD_CLIENT)
 		target_link_libraries(${PROJECT_NAME} Tracy::TracyClient)
 	endif()
 
+	if(ENABLE_RMLUI_SPIKE)
+		target_link_libraries(${PROJECT_NAME} rmlui_core)
+		target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_RMLUI_SPIKE)
+	endif()
+
 	if(PRECOMPILE_HEADERS)
 		target_precompile_headers(${PROJECT_NAME} PRIVATE ${PRECOMPILED_HEADERS_LIST})
 	endif()

@@ -304,6 +304,27 @@ list(TRANSFORM BUILTIN_SRCS
 	PREPEND "${BUILTIN_BASE_PATH}/"
 	OUTPUT_VARIABLE BUILTIN_SRCS_ABS)
 
+# Optional: fetch RmlUi to validate compile/link integration (no rendering yet).
+# Requires network when configuring with -DENABLE_RMLUI_SPIKE=ON.
+option(ENABLE_RMLUI_SPIKE
+	"Fetch and link RmlUi (compile-only spike; see src/client/game.cpp)"
+	OFF)
+if(ENABLE_RMLUI_SPIKE)
+	if(NOT BUILD_CLIENT)
+		message(FATAL_ERROR "ENABLE_RMLUI_SPIKE requires BUILD_CLIENT=ON")
+	endif()
+	include(FetchContent)
+	set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
+	set(RMLUI_LUA_BINDINGS OFF CACHE BOOL "" FORCE)
+	set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+	FetchContent_Declare(rmlui
+		GIT_REPOSITORY https://github.com/mikke89/RmlUi.git
+		GIT_TAG 6.2
+	)
+	FetchContent_MakeAvailable(rmlui)
+	message(STATUS "RmlUi spike: FetchContent populated (link target rmlui_core)")
+endif()
+
 # Subdirectories
 # Be sure to add all relevant definitions above this
 add_subdirectory(src)

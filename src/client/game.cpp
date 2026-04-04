@@ -15,6 +15,13 @@
 #include "clientmap.h"
 #include "clientmedia.h" // For clientMediaUpdateCacheCopy
 #include "config.h"
+
+#ifdef ENABLE_RMLUI_SPIKE
+#include <RmlUi/Core.h>
+namespace {
+bool g_rmlui_spike_inited = false;
+}
+#endif
 #include "content_cao.h"
 #include "content/subgames.h"
 #include "client/event_manager.h"
@@ -394,6 +401,12 @@ Game::Game() :
 
 Game::~Game()
 {
+#ifdef ENABLE_RMLUI_SPIKE
+	if (g_rmlui_spike_inited) {
+		Rml::Shutdown();
+		g_rmlui_spike_inited = false;
+	}
+#endif
 	delete client;
 	soundmaker.reset();
 	sound_manager.reset();
@@ -425,6 +438,15 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 		GameErrorData &errordata,
 		ChatBackend *chat_backend)
 {
+#ifdef ENABLE_RMLUI_SPIKE
+	if (!g_rmlui_spike_inited) {
+		if (!Rml::Initialise()) {
+			error_message = "RmlUi spike: Rml::Initialise() failed";
+			return false;
+		}
+		g_rmlui_spike_inited = true;
+	}
+#endif
 
 	// "cache"
 	m_rendering_engine        = rendering_engine;
