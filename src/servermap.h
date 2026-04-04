@@ -4,8 +4,10 @@
 
 #pragma once
 
-#include <vector>
+#include <array>
 #include <memory>
+#include <mutex>
+#include <vector>
 
 #include "map.h"
 #include "util/container.h" // UniqueQueue
@@ -21,8 +23,18 @@ class MetricsBackend;
 
 // TODO: this could wrap all calls to MapDatabase, including locking
 struct MapDatabaseAccessor {
-	/// Lock, to be taken for any operation
-	std::mutex mutex;
+	/*
+		Experimental mutex striping (mutex-experimental branch):
+		- stripe_mutex: per-hash-bucket lock for single-block load/save/delete paths.
+		- global_mutex: whole-DB operations (list, destructor, beginSave/endSave) and
+		  must be taken before stripe_mutex when both are needed (fixed lock order).
+	*/
+	static constexpr size_t STRIPE_COUNT = 64;
+	std::array<std::mutex, STRIPE_COUNT> stripe_mutex;
+	std::mutex global_mutex;
+
+	std::mutex &stripeMutex(v3s16 blockpos);
+
 	/// Main database
 	MapDatabase *dbase = nullptr;
 	/// Fallback database for read operations
