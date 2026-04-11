@@ -12,6 +12,7 @@
 #pragma once
 
 #include "common/c_internal.h"
+#include "lua_api/l_base.h"
 
 #define luamethod(class, name) {#name, class::l_##name}
 
@@ -43,10 +44,20 @@
 // Retrieve ServerEnvironment pointer as `env` (no map lock)
 #define GET_ENV_PTR_NO_MAP_LOCK                              \
 	DEBUG_ASSERT_NO_CLIENTAPI;                               \
-	ServerEnvironment *env = (ServerEnvironment *)getEnv(L); \
+	ServerEnvironment *env = (ServerEnvironment *)ModApiBase::getEnv(L); \
 	if (!env) {                                              \
 		log_deprecated(L, "Calling this function during script init is disallowed.", 1); \
 		return 0;                                            \
+	} \
+	((void)0)
+
+// Same as GET_ENV_PTR_NO_MAP_LOCK for `void` functions (early exit only).
+#define GET_ENV_PTR_NO_MAP_LOCK_VOID                           \
+	DEBUG_ASSERT_NO_CLIENTAPI;                               \
+	ServerEnvironment *env = (ServerEnvironment *)ModApiBase::getEnv(L); \
+	if (!env) {                                              \
+		log_deprecated(L, "Calling this function during script init is disallowed.", 1); \
+		return;                                              \
 	} \
 	((void)0)
 
@@ -57,7 +68,7 @@
 
 // Retrieve Environment pointer as `env` (no map lock)
 #define GET_PLAIN_ENV_PTR_NO_MAP_LOCK            \
-	Environment *env = getEnv(L);                \
+	Environment *env = ModApiBase::getEnv(L);    \
 	if (env == NULL)                             \
 		return 0
 

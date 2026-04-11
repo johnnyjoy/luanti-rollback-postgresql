@@ -48,6 +48,9 @@ dofile(commonpath .. "vector2.lua")
 dofile(commonpath .. "strict.lua")
 dofile(commonpath .. "serialize.lua")
 dofile(commonpath .. "misc_helpers.lua")
+if INIT == "game" or INIT == "client" then
+	dofile(commonpath .. "rmlui_ui_helpers.lua")
+end
 
 if INIT == "game" then
 	dofile(scriptdir .. "game" .. DIR_DELIM .. "init.lua")

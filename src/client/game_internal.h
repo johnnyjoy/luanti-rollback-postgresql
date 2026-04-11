@@ -7,6 +7,7 @@
 #include "game.h"
 
 #include <AnimatedMeshSceneNode.h>
+#include <memory>
 #include <optional>
 #include <vector>
 #include "camera.h"
@@ -23,12 +24,7 @@
 #include "sky.h"
 #include "util/pointedthing.h"
 
-#ifdef ENABLE_RMLUI_SPIKE
-namespace Rml {
-class Context;
-class ElementDocument;
-}
-#endif
+#include "client/ui_manager.h"
 
 /* DO NOT INCLUDE THIS FROM OUTSIDE GAME.CPP */
 
@@ -247,21 +243,54 @@ protected:
 	{
 		return input->getAxisValue(k);
 	}
-	inline bool isKeyDown(GameKeyType k)
+	inline bool isKeyDown(GameKeyType k) const
 	{
 		return input->isKeyDown(k);
 	}
-	inline bool wasKeyDown(GameKeyType k)
+	inline bool wasKeyDown(GameKeyType k) const
 	{
 		return input->wasKeyDown(k);
 	}
-	inline bool wasKeyPressed(GameKeyType k)
+	inline bool wasKeyPressed(GameKeyType k) const
 	{
 		return input->wasKeyPressed(k);
 	}
-	inline bool wasKeyReleased(GameKeyType k)
+	inline bool wasKeyReleased(GameKeyType k) const
 	{
 		return input->wasKeyReleased(k);
+	}
+
+	/**
+	 * While a visible RmlUi modal is active, primary/secondary actions belong to the UI
+	 * (same idea as menus): gameplay must not see dig/place as down or newly pressed.
+	 */
+	inline bool digKeyDownForGameplay() const
+	{
+		if (m_ui_manager && m_ui_manager->isReady() &&
+				(m_ui_manager->hasVisibleModalSurface() || m_ui_manager->isInstrumentMode()))
+			return false;
+		return isKeyDown(KeyType::DIG);
+	}
+	inline bool digKeyPressedForGameplay() const
+	{
+		if (m_ui_manager && m_ui_manager->isReady() &&
+				(m_ui_manager->hasVisibleModalSurface() || m_ui_manager->isInstrumentMode()))
+			return false;
+		return wasKeyPressed(KeyType::DIG);
+	}
+	inline bool placeKeyDownForGameplay() const
+	{
+		if (m_ui_manager && m_ui_manager->isReady() &&
+				(m_ui_manager->hasVisibleModalSurface() || m_ui_manager->isInstrumentMode()))
+			return false;
+		return isKeyDown(KeyType::PLACE);
+	}
+	inline bool placeKeyPressedForGameplay() const
+	{
+		if (m_ui_manager && m_ui_manager->isReady() &&
+				(m_ui_manager->hasVisibleModalSurface() || m_ui_manager->isInstrumentMode()))
+			return false;
+		return wasKeyPressed(KeyType::PLACE);
 	}
 
 #ifdef __ANDROID__
@@ -299,6 +328,7 @@ private:
 		CameraOrientation *cam);
 	void handleClientEvent_CloudParams(ClientEvent *event, CameraOrientation *cam);
 	void handleClientEvent_UpdateCamera(ClientEvent *event, CameraOrientation *cam);
+	void handleClientEvent_RmlUiServer(ClientEvent *event, CameraOrientation *cam);
 
 	void updateChat(f32 dtime);
 
@@ -406,9 +436,6 @@ private:
 
 	float m_shutdown_progress = 0.0f;
 
-#ifdef ENABLE_RMLUI_SPIKE
-	Rml::Context *m_rml_context = nullptr;
-	Rml::ElementDocument *m_rml_document = nullptr;
-	bool m_rml_initialized = false;
-#endif
+	/// Declarative UI (RmlUi); owns init/update/render/shutdown.
+	std::unique_ptr<UiManager> m_ui_manager;
 };

@@ -6,12 +6,16 @@
 
 #include "irrlichttypes.h"
 #include "irr_v2d.h"
+#include "joystick_controller.h"
+#include "keys.h"
 #include <array>
 #include <bitset>
 #include <map>
 #include <set>
+#include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 #include "keycode.h"
 #include "settings.h"
 #include "util/string.h"
@@ -21,6 +25,14 @@ class InputHandler;
 enum class PointerType {
 	Mouse,
 	Touch,
+};
+
+struct UiKeyEvent {
+	bool pressed_down = false;
+	EKEY_CODE key = KEY_KEY_CODES_COUNT;
+	char32_t text = 0; // Unicode codepoint when available (0 if none)
+	bool shift = false;
+	bool ctrl = false;
 };
 
 class MyEventReceiver : public IEventReceiver
@@ -87,7 +99,23 @@ public:
 		keyWasReleased.reset();
 	}
 
+	/// Clears "was pressed" for a single action (RmlUi consuming primary click).
+	void clearWasKeyPressedFor(GameKeyType k) { keyWasPressed.reset(k); }
+	/// Clears "was released" for a single action (RmlUi consuming primary release).
+	void clearWasKeyReleasedFor(GameKeyType k) { keyWasReleased.reset(k); }
+
+	JoystickController *joystick = nullptr;
+
 	PointerType getLastPointerType() { return last_pointer_type; }
+
+	/// Returns and clears buffered UI keyboard/text events (for RmlUi).
+	void takeUiEvents(std::vector<UiKeyEvent> &out_key_events, std::u32string &out_text_input)
+	{
+		out_key_events = std::move(m_ui_key_events);
+		out_text_input = std::move(m_ui_text_input);
+		m_ui_key_events.clear();
+		m_ui_text_input.clear();
+	}
 
 private:
 	void listenForKey(KeyPress keyCode, GameKeyType action)
@@ -168,6 +196,9 @@ private:
 	bool esc_down = false;
 
 	PointerType last_pointer_type = PointerType::Mouse;
+
+	std::vector<UiKeyEvent> m_ui_key_events;
+	std::u32string m_ui_text_input;
 };
 
 class InputHandler
@@ -204,6 +235,18 @@ public:
 
 	virtual void clearWasKeyPressed() {}
 	virtual void clearWasKeyReleased() {}
+
+	/// When RmlUi handles the primary (dig) mouse button, clear DIG "pressed"/"released"
+	/// so game code in this frame does not treat it as a world interaction.
+	virtual void suppressRmlUiPrimaryPress() {}
+	virtual void suppressRmlUiPrimaryRelease() {}
+
+	/// Drain raw key/text events suitable for UI runtimes (e.g. RmlUi).
+	virtual void takeUiEvents(std::vector<UiKeyEvent> &out_key_events, std::u32string &out_text_input)
+	{
+		(void)out_key_events;
+		(void)out_text_input;
+	}
 
 	virtual void reloadKeybindings() {}
 
@@ -257,6 +300,13 @@ public:
 		return wasKeyDown(KeyType::ESC);
 	}
 
+	void takeUiEvents(std::vector<UiKeyEvent> &out_key_events, std::u32string &out_text_input) override
+	{
+		if (!m_receiver)
+			return;
+		m_receiver->takeUiEvents(out_key_events, out_text_input);
+	}
+
 	virtual void clearWasKeyPressed()
 	{
 		m_receiver->clearWasKeyPressed();
@@ -264,6 +314,17 @@ public:
 	virtual void clearWasKeyReleased()
 	{
 		m_receiver->clearWasKeyReleased();
+	}
+
+	void suppressRmlUiPrimaryPress() override
+	{
+		m_receiver->clearWasKeyPressedFor(KeyType::DIG);
+		joystick.clearWasKeyPressed(KeyType::DIG);
+	}
+	void suppressRmlUiPrimaryRelease() override
+	{
+		m_receiver->clearWasKeyReleasedFor(KeyType::DIG);
+		joystick.clearWasKeyReleased(KeyType::DIG);
 	}
 
 	virtual void reloadKeybindings()

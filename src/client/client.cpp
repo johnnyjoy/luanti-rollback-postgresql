@@ -48,6 +48,8 @@
 #include "modchannels.h"
 #include "script/common/c_types.h" // LuaError
 #include "script/scripting_client.h"
+#include "client/ui_manager.h"
+#include "client/rmlui_server_apply.h"
 
 // SSCSM
 #include "client/mod_vfs.h"
@@ -1542,6 +1544,21 @@ void Client::sendUpdateClientInfo(const ClientDynamicInfo& info)
 	Send(&pkt);
 }
 
+void Client::sendUiAction(const std::string &surface_id, u32 button_index)
+{
+	NetworkPacket pkt(TOSERVER_UI_ACTION, 0);
+	pkt << surface_id << button_index;
+	Send(&pkt);
+}
+
+void Client::sendUiInstrument(const std::string &surface_id, const std::string &payload_json)
+{
+	NetworkPacket pkt(TOSERVER_UI_INSTRUMENT, 0);
+	pkt << surface_id;
+	pkt.putLongString(payload_json);
+	Send(&pkt);
+}
+
 void Client::removeNode(v3s16 p)
 {
 	std::map<v3s16, MapBlock*> modified_blocks;
@@ -1993,6 +2010,29 @@ void Client::makeScreenshot()
 void Client::pushToEventQueue(ClientEvent *event)
 {
 	m_client_event_queue.push(event);
+}
+
+void Client::enqueuePendingRmlUiServerEvent(u8 op, std::unique_ptr<std::string> surface_id,
+		std::unique_ptr<std::string> payload)
+{
+	PendingRmlUiServerEvent pending;
+	pending.op = op;
+	pending.surface_id = std::move(surface_id);
+	pending.payload = std::move(payload);
+	m_pending_rmlui_server_events.push_back(std::move(pending));
+}
+
+void Client::drainPendingRmlUiServerNetworkEvents()
+{
+	if (!getUiManager() || !getUiManager()->isReady() || m_pending_rmlui_server_events.empty())
+		return;
+
+	while (!m_pending_rmlui_server_events.empty()) {
+		PendingRmlUiServerEvent pending = std::move(m_pending_rmlui_server_events.front());
+		m_pending_rmlui_server_events.pop_front();
+		apply_rmlui_server_network_event(this, pending.op, std::move(pending.surface_id),
+				std::move(pending.payload));
+	}
 }
 
 // IGameDef interface

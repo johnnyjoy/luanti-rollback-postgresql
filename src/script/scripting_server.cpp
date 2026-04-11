@@ -33,6 +33,8 @@
 #include "lua_api/l_http.h"
 #include "lua_api/l_storage.h"
 #include "lua_api/l_ipc.h"
+#include "lua_api/l_ui_server_public.h"
+#include "remoteplayer.h"
 
 extern "C" {
 #include <lualib.h>
@@ -178,4 +180,16 @@ void ServerScripting::InitializeAsync(lua_State *L, int top)
 	assert(data);
 	script_unpack(L, data);
 	lua_setfield(L, top, "transferred_globals");
+}
+
+void ServerScripting::dispatchUiButtonAction(RemotePlayer *player, const std::string &surface_id,
+		u32 button_index)
+{
+	ui_server_dispatch_ui_action(getStack(), getServer(), player, surface_id, button_index);
+}
+
+void ServerScripting::dispatchUiInstrumentEvent(RemotePlayer *player, const std::string &surface_id,
+		const std::string &payload_json)
+{
+	ui_server_dispatch_ui_instrument_event(getStack(), getServer(), player, surface_id, payload_json);
 }

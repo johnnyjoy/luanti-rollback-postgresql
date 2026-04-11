@@ -21,6 +21,9 @@
 
 #include <algorithm>
 
+#include "lua_api/l_ui_authoring.h"
+#include "lua_api/l_ui_server_public.h"
+
 // request_shutdown()
 int ModApiServer::l_request_shutdown(lua_State *L)
 {
@@ -721,6 +724,17 @@ void ModApiServer::Initialize(lua_State *L, int top)
 	API_FCT(serialize_roundtrip);
 
 	API_FCT(register_mapgen_script);
+	lua_getfield(L, top, "ui");
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		lua_newtable(L);
+		lua_setfield(L, top, "ui");
+	}
+	lua_getfield(L, top, "ui");
+	int ui_top = lua_gettop(L);
+	registerUiServerPublic(L, ui_top);
+	registerUiAuthoringHelpers(L, ui_top);
+	lua_pop(L, 1);
 }
 
 void ModApiServer::InitializeAsync(lua_State *L, int top)

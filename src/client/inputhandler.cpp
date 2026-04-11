@@ -227,6 +227,25 @@ bool MyEventReceiver::OnEvent(const SEvent &event)
 
 	// This is separate from other keyboard handling so that it also works in menus.
 	if (event.EventType == EET_KEY_INPUT_EVENT) {
+		// Buffer UI key/text events only when no menu is active; otherwise they would
+		// accumulate and get delivered later when the game UI resumes.
+		if (!isMenuActive()) {
+			UiKeyEvent uiev;
+			uiev.pressed_down = event.KeyInput.PressedDown;
+			uiev.key = event.KeyInput.Key;
+			uiev.text = static_cast<char32_t>(event.KeyInput.Char);
+			uiev.shift = event.KeyInput.Shift;
+			uiev.ctrl = event.KeyInput.Control;
+			m_ui_key_events.push_back(uiev);
+			// Text input: only when a printable character is produced (ignore ctrl chords).
+			// Filter ASCII control codes defensively; editing/navigation is handled via key events.
+			if (event.KeyInput.PressedDown && uiev.text != 0 && !uiev.ctrl) {
+				const char32_t cp = uiev.text;
+				if (cp >= 0x20u && cp != 0x7Fu)
+					m_ui_text_input.push_back(cp);
+			}
+		}
+
 		KeyPress keyCode(event.KeyInput);
 
 		if (keySettingHasMatch("keymap_fullscreen", keyCode)) {

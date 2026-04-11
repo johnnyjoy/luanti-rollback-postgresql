@@ -15,6 +15,7 @@
 #include "util/numeric.h"
 #include "util/string.h" // StringMap
 
+#include <deque>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -47,6 +48,7 @@ class RenderingEngine;
 class SingleMediaDownloader;
 class ClientScripting;
 class SSCSMController;
+class UiManager;
 struct ChatMessage;
 struct ClientDynamicInfo;
 struct ClientEvent;
@@ -188,6 +190,7 @@ public:
 	void handleCommand_ShowFormSpec(NetworkPacket* pkt);
 	void handleCommand_SpawnParticle(NetworkPacket* pkt);
 	void handleCommand_SpawnParticleBatch(NetworkPacket *pkt);
+	void handleCommand_RmlUiServer(NetworkPacket *pkt);
 	void handleCommand_AddParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_DeleteParticleSpawner(NetworkPacket* pkt);
 	void handleCommand_HudAdd(NetworkPacket* pkt);
@@ -235,6 +238,8 @@ public:
 	void sendReady();
 	void sendHaveMedia(const std::vector<u32> &tokens);
 	void sendUpdateClientInfo(const ClientDynamicInfo &info);
+	void sendUiAction(const std::string &surface_id, u32 button_index);
+	void sendUiInstrument(const std::string &surface_id, const std::string &payload_json);
 
 	ClientEnvironment& getEnv() { return m_env; }
 	ITextureSource *tsrc() { return getTextureSource(); }
@@ -405,6 +410,15 @@ public:
 
 	ClientScripting *getScript() { return m_script; }
 	bool modsLoaded() const { return m_mods_loaded; }
+
+	/// In-game UI runtime (owned by Game); set after client creation when RmlUi UI is built.
+	void setUiManager(UiManager *mgr) { m_ui_manager = mgr; }
+	UiManager *getUiManager() const { return m_ui_manager; }
+	/// Queue server UI op when UiManager is not ready yet (FIFO).
+	void enqueuePendingRmlUiServerEvent(u8 op, std::unique_ptr<std::string> surface_id,
+			std::unique_ptr<std::string> payload);
+	/// Drain @ref m_pending_rmlui_server_events once UiManager is ready (call each frame before processClientEvents).
+	void drainPendingRmlUiServerNetworkEvents();
 
 	void pushToEventQueue(ClientEvent *event);
 
@@ -592,6 +606,13 @@ private:
 
 	// Client modding
 	ClientScripting *m_script = nullptr;
+	UiManager *m_ui_manager = nullptr;
+	struct PendingRmlUiServerEvent {
+		u8 op = 0;
+		std::unique_ptr<std::string> surface_id;
+		std::unique_ptr<std::string> payload;
+	};
+	std::deque<PendingRmlUiServerEvent> m_pending_rmlui_server_events;
 	ModStorageDatabase *m_mod_storage_database = nullptr;
 	float m_mod_storage_save_timer = 10.0f;
 	std::vector<ModSpec> m_mods;

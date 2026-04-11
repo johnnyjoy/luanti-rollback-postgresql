@@ -112,6 +112,7 @@ const ToClientCommandHandler toClientCommandTable[TOCLIENT_NUM_MSG_TYPES] =
 	{ "TOCLIENT_MINIMAP_MODES",            TOCLIENT_STATE_CONNECTED, &Client::handleCommand_MinimapModes }, // 0x62,
 	{ "TOCLIENT_SET_LIGHTING",             TOCLIENT_STATE_CONNECTED, &Client::handleCommand_SetLighting }, // 0x63,
 	{ "TOCLIENT_SPAWN_PARTICLE_BATCH",     TOCLIENT_STATE_CONNECTED, &Client::handleCommand_SpawnParticleBatch }, // 0x64,
+	{ "TOCLIENT_UI_SERVER", TOCLIENT_STATE_CONNECTED, &Client::handleCommand_RmlUiServer }, // 0x65
 };
 
 const static ServerCommandFactory null_command_factory = { nullptr, 0, false };
@@ -212,4 +213,6 @@ const ServerCommandFactory serverCommandFactoryTable[TOSERVER_NUM_MSG_TYPES] =
 	{ "TOSERVER_SRP_BYTES_A",        1, true }, // 0x51
 	{ "TOSERVER_SRP_BYTES_M",        1, true }, // 0x52
 	{ "TOSERVER_UPDATE_CLIENT_INFO", 2, true }, // 0x53
+	{ "TOSERVER_UI_ACTION",          0, true }, // 0x54
+	{ "TOSERVER_UI_INSTRUMENT",      0, true }, // 0x55
 };

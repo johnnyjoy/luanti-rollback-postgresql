@@ -1837,3 +1837,39 @@ void Server::handleCommand_UpdateClientInfo(NetworkPacket *pkt)
 	RemoteClient *client = getClient(peer_id, CS_Invalid);
 	client->setDynamicInfo(info);
 }
+
+void Server::handleCommand_UiAction(NetworkPacket *pkt)
+{
+	std::string surface_id;
+	u32 button_index;
+	*pkt >> surface_id >> button_index;
+
+	session_t peer_id = pkt->getPeerId();
+	RemotePlayer *player = m_env->getPlayer(peer_id);
+	if (!player)
+		return;
+
+	ServerScripting *script = getScriptIface();
+	if (!script)
+		return;
+
+	script->dispatchUiButtonAction(player, surface_id, button_index);
+}
+
+void Server::handleCommand_UiInstrument(NetworkPacket *pkt)
+{
+	std::string surface_id;
+	*pkt >> surface_id;
+	std::string payload = pkt->readLongString();
+
+	session_t peer_id = pkt->getPeerId();
+	RemotePlayer *player = m_env->getPlayer(peer_id);
+	if (!player)
+		return;
+
+	ServerScripting *script = getScriptIface();
+	if (!script)
+		return;
+
+	script->dispatchUiInstrumentEvent(player, surface_id, payload);
+}

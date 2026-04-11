@@ -16,6 +16,8 @@
 
 struct PackedValue;
 
+class RemotePlayer;
+
 /*****************************************************************************/
 /* Scripting <-> Server Game Interface                                       */
 /*****************************************************************************/
@@ -43,6 +45,13 @@ public:
 
 	// Initialize async engine, call this AFTER loading all mods
 	void initAsync() override;
+
+	/** Runs server Lua for a client-reported RmlUi button press (uses main script stack). */
+	void dispatchUiButtonAction(RemotePlayer *player, const std::string &surface_id, u32 button_index);
+
+	/** Runs server Lua for a client-reported instrument event (drag/resize handle). */
+	void dispatchUiInstrumentEvent(RemotePlayer *player, const std::string &surface_id,
+			const std::string &payload_json);
 
 protected:
 	// from ScriptApiSecurity:

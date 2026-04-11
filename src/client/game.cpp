@@ -16,9 +16,6 @@
 #include "clientmedia.h" // For clientMediaUpdateCacheCopy
 #include "config.h"
 
-#ifdef ENABLE_RMLUI_SPIKE
-#include <RmlUi/Core.h>
-#endif
 #include "content_cao.h"
 #include "content/subgames.h"
 #include "client/event_manager.h"
@@ -51,6 +48,8 @@
 #include "version.h"
 #include "script/scripting_client.h"
 #include "hud.h"
+#include "client/rmlui_server_apply.h"
+#include <json/json.h>
 #include <AnimatedMeshSceneNode.h>
 #include <ICameraSceneNode.h>
 #include "util/tracy_wrapper.h"
@@ -398,22 +397,14 @@ Game::Game() :
 
 Game::~Game()
 {
-#ifdef ENABLE_RMLUI_SPIKE
-	if (m_rml_document) {
-		m_rml_document->Close();
-		m_rml_document = nullptr;
-	}
-	if (m_rml_context) {
-		m_rml_context->Update();
-		Rml::RemoveContext("main");
-		m_rml_context = nullptr;
-	}
-	if (m_rml_initialized) {
-		Rml::Shutdown();
-		m_rml_initialized = false;
-	}
-#endif
+	if (m_ui_manager)
+		m_ui_manager->setUiClickDispatcher({});
+	if (m_ui_manager)
+		m_ui_manager->setInstrumentEventDispatcher({});
+	// Destroy client (and Lua) before UiManager so scripts never call into a torn-down RmlUi context.
 	delete client;
+	client = nullptr;
+	m_ui_manager.reset();
 	soundmaker.reset();
 	sound_manager.reset();
 
@@ -444,49 +435,6 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 		GameErrorData &errordata,
 		ChatBackend *chat_backend)
 {
-#ifdef ENABLE_RMLUI_SPIKE
-	if (!m_rml_initialized) {
-		if (!Rml::Initialise()) {
-			error_message = "RmlUi spike: Rml::Initialise() failed";
-			return false;
-		}
-		m_rml_initialized = true;
-	}
-
-	{
-		const int sw = static_cast<int>(g_settings->getU16("screen_w"));
-		const int sh = static_cast<int>(g_settings->getU16("screen_h"));
-		const int w = (sw > 0) ? sw : 800;
-		const int h = (sh > 0) ? sh : 600;
-		m_rml_context = Rml::CreateContext("main", Rml::Vector2i(w, h));
-	}
-	if (!m_rml_context) {
-		error_message = "RmlUi spike: Rml::CreateContext(\"main\") failed";
-		Rml::Shutdown();
-		m_rml_initialized = false;
-		return false;
-	}
-
-	static const char rmlui_spike_document[] =
-		"<rml>\n"
-		"<body>\n"
-		"<div style=\"width:100px;height:100px;background:#f00;\"></div>\n"
-		"</body>\n"
-		"</rml>";
-
-	m_rml_document = m_rml_context->LoadDocumentFromMemory(
-			rmlui_spike_document, "rmlui-spike://memory");
-	if (!m_rml_document) {
-		error_message = "RmlUi spike: LoadDocumentFromMemory failed";
-		Rml::RemoveContext("main");
-		m_rml_context = nullptr;
-		Rml::Shutdown();
-		m_rml_initialized = false;
-		return false;
-	}
-	m_rml_document->Show();
-#endif
-
 	// "cache"
 	m_rendering_engine        = rendering_engine;
 	device                    = m_rendering_engine->get_raw_device();
@@ -500,6 +448,10 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 
 	driver = device->getVideoDriver();
 	smgr = m_rendering_engine->get_scene_manager();
+
+	m_ui_manager = std::make_unique<UiManager>();
+	if (!m_ui_manager->initialize(driver, error_message))
+		return false;
 
 	driver->setTextureCreationFlag(video::ETCF_CREATE_MIP_MAPS, g_settings->getBool("mip_map"));
 
@@ -523,6 +475,80 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 
 	if (!createClient(start_data))
 		return false;
+
+	client->setUiManager(m_ui_manager.get());
+	m_ui_manager->setUiClickDispatcher(
+			[this](const std::string &surface_id, int button_index) {
+				if (!client) {
+					warningstream << "[RmlUi] UI click: no client (sid=" << surface_id
+							<< " btn=" << button_index << ")" << std::endl;
+					return;
+				}
+				// Server-driven core.ui does not require client Lua. Always route to server.
+				if (client->getProtoVersion() < 52) {
+					warningstream << "[RmlUi] UI action: no client scripting and protocol "
+							<< client->getProtoVersion()
+							<< " < 52; cannot send TOSERVER_UI_ACTION (sid=" << surface_id
+							<< " btn=" << button_index << ")" << std::endl;
+				} else {
+					client->sendUiAction(surface_id, static_cast<u32>(button_index));
+				}
+			});
+
+	m_ui_manager->setInstrumentEventDispatcher(
+			[this](const UiInstrumentEvent &ev) -> bool {
+				if (!client)
+					return false;
+				if (client->getProtoVersion() < 52) {
+					warningstream << "[RmlUi] instrument event: protocol " << client->getProtoVersion()
+							<< " < 52; cannot send (sid=" << ev.surface_id << ")"
+							<< std::endl;
+					return false;
+				}
+
+				Json::Value root;
+				root["phase"] = ev.phase;
+				root["kind"] = ev.kind;
+				if (!ev.element_id.empty())
+					root["element_id"] = ev.element_id;
+				if (!ev.resize_handle.empty())
+					root["resize_handle"] = ev.resize_handle;
+
+				root["mouse"]["x"] = ev.mouse_x;
+				root["mouse"]["y"] = ev.mouse_y;
+				root["delta"]["x"] = ev.drag_dx;
+				root["delta"]["y"] = ev.drag_dy;
+				root["viewport"]["w"] = ev.viewport_w;
+				root["viewport"]["h"] = ev.viewport_h;
+
+				root["initial_rect"]["x"] = ev.initial_abs_x;
+				root["initial_rect"]["y"] = ev.initial_abs_y;
+				root["initial_rect"]["w"] = ev.initial_rect_w;
+				root["initial_rect"]["h"] = ev.initial_rect_h;
+
+				root["current_rect"]["x"] = ev.abs_x;
+				root["current_rect"]["y"] = ev.abs_y;
+				root["current_rect"]["w"] = ev.rect_w;
+				root["current_rect"]["h"] = ev.rect_h;
+
+				if (ev.has_placement) {
+					root["placement"]["anchor"] = ev.placement_anchor;
+					root["placement"]["x"] = ev.placement_x;
+					root["placement"]["y"] = ev.placement_y;
+					root["placement"]["keep_in_view"] = ev.placement_keep_in_view;
+				}
+
+				Json::Value ids(Json::arrayValue);
+				for (const auto &id : ev.id_path)
+					ids.append(id);
+				root["id_path"] = ids;
+
+				Json::StreamWriterBuilder w;
+				w["indentation"] = "";
+				const std::string payload = Json::writeString(w, root);
+				client->sendUiInstrument(ev.surface_id, payload);
+				return true;
+			});
 
 	m_rendering_engine->initialize(client, hud);
 
@@ -645,6 +671,9 @@ void Game::run()
 
 		step(dtime);
 
+		// Server-driven RmlUi: drain ops queued while UiManager was not ready (no ClientScripting required).
+		if (client && m_ui_manager && m_ui_manager->isReady())
+			client->drainPendingRmlUiServerNetworkEvents();
 		processClientEvents(&cam_view_target);
 		updateDebugState();
 		// Update camera here so it is in-sync with CAO position
@@ -712,6 +741,10 @@ void Game::shutdown()
 		}
 	}
 
+	if (m_ui_manager)
+		m_ui_manager->setUiClickDispatcher({});
+	if (m_ui_manager)
+		m_ui_manager->setInstrumentEventDispatcher({});
 	delete client;
 	client = nullptr;
 	soundmaker.reset();
@@ -1484,6 +1517,31 @@ void Game::processUserInput(f32 dtime)
 
 void Game::processKeyInput()
 {
+	// HUD instrument mode: ESC exits the mode and gameplay keybinds are suppressed while active.
+	if (m_ui_manager && m_ui_manager->isReady() && m_ui_manager->isInstrumentMode()) {
+		if (wasKeyDown(KeyType::ESC)) {
+			m_ui_manager->exitInstrumentMode();
+			return;
+		}
+		// Instrument mode is exclusive (same principle as a visible modal).
+		return;
+	}
+
+	// Modal dismiss policy: ESC closes dismissable modals instead of opening pause menu.
+	if (m_ui_manager && m_ui_manager->isReady() && m_ui_manager->hasVisibleDismissableModalSurface()) {
+		if (wasKeyDown(KeyType::ESC)) {
+			if (m_ui_manager->dismissTopmostModalByEscape())
+				return;
+		}
+	}
+	// While a modal surface is visible, it owns top-level UI activation keys (chat/console/etc).
+	const bool ui_modal_exclusive =
+			m_ui_manager && m_ui_manager->isReady() && m_ui_manager->hasVisibleModalSurface();
+	// Modal surfaces are the sole interaction owner: while visible, do not process gameplay keybinds
+	// (drop, movement toggles, inventory, chat, etc). UI receives keyboard via UiManager input forwarding.
+	if (ui_modal_exclusive)
+		return;
+
 	if (wasKeyDown(KeyType::DROP)) {
 		dropSelectedItem(isKeyDown(KeyType::SNEAK));
 	} else if (wasKeyDown(KeyType::AUTOFORWARD)) {
@@ -1491,7 +1549,9 @@ void Game::processKeyInput()
 	} else if (wasKeyDown(KeyType::BACKWARD)) {
 		if (g_settings->getBool("continuous_forward"))
 			toggleAutoforward();
-	} else if (wasKeyDown(KeyType::INVENTORY)) {
+	} else if (wasKeyDown(KeyType::INVENTORY)
+			&& !ui_modal_exclusive
+	) {
 		m_game_formspec.showPlayerInventory(nullptr);
 	} else if (input->cancelPressed()) {
 #ifdef __ANDROID__
@@ -1500,16 +1560,24 @@ void Game::processKeyInput()
 		if (!gui_chat_console->isOpenInhibited()) {
 			m_game_formspec.showPauseMenu();
 		}
-	} else if (wasKeyDown(KeyType::CHAT)) {
+	} else if (wasKeyDown(KeyType::CHAT)
+			&& !ui_modal_exclusive
+	) {
 		openConsole(0.2, L"");
-	} else if (wasKeyDown(KeyType::CMD)) {
+	} else if (wasKeyDown(KeyType::CMD)
+			&& !ui_modal_exclusive
+	) {
 		openConsole(0.2, L"/");
-	} else if (wasKeyDown(KeyType::CMD_LOCAL)) {
+	} else if (wasKeyDown(KeyType::CMD_LOCAL)
+			&& !ui_modal_exclusive
+	) {
 		if (client->modsLoaded())
 			openConsole(0.2, L".");
 		else
 			m_game_ui->showTranslatedStatusText("Client side scripting is disabled");
-	} else if (wasKeyDown(KeyType::CONSOLE)) {
+	} else if (wasKeyDown(KeyType::CONSOLE)
+			&& !ui_modal_exclusive
+	) {
 		openConsole(core::clamp(g_settings->getFloat("console_height"), 0.1f, 1.0f));
 	} else if (wasKeyDown(KeyType::FREEMOVE)) {
 		toggleFreeMove();
@@ -1597,6 +1665,9 @@ void Game::processKeyInput()
 
 void Game::processItemSelection(u16 *new_playeritem)
 {
+	if (m_ui_manager && m_ui_manager->isReady() &&
+			(m_ui_manager->hasVisibleModalSurface() || m_ui_manager->isInstrumentMode()))
+		return;
 	LocalPlayer *player = client->getEnv().getLocalPlayer();
 
 	*new_playeritem = player->getWieldIndex();
@@ -1993,6 +2064,13 @@ void Game::updateCameraDirection(CameraOrientation *cam, float dtime)
 {
 	auto *cur_control = device->getCursorControl();
 
+	const bool ui_modal_captures_mouse =
+			m_ui_manager && m_ui_manager->isReady() && m_ui_manager->hasVisibleModalSurface();
+	const bool ui_instrument_mode =
+			m_ui_manager && m_ui_manager->isReady() && m_ui_manager->isInstrumentMode();
+	/// When true, use a visible cursor and non-relative mouse (same as an open menu / formspec).
+	const bool free_mouse_for_ui = isMenuActive() || ui_modal_captures_mouse || ui_instrument_mode;
+
 	/* On Linux and Windows, enabling relative mouse mode somehow results
 	in simulated mouse events being generated from touch events, even though
 	SDL_HINT_MOUSE_TOUCH_EVENTS and SDL_HINT_TOUCH_MOUSE_EVENTS are set to 0.
@@ -2000,10 +2078,10 @@ void Game::updateCameraDirection(CameraOrientation *cam, float dtime)
 	this results in duplicated input. To avoid that, we don't enable relative
 	mouse mode if we're in touchscreen mode. */
 	if (cur_control)
-		cur_control->setRelativeMode(!g_touchcontrols && !isMenuActive());
+		cur_control->setRelativeMode(!g_touchcontrols && !free_mouse_for_ui);
 
 	if ((device->isWindowActive() && device->isWindowFocused()
-			&& !isMenuActive()) || input->isRandom()) {
+			&& !free_mouse_for_ui) || input->isRandom()) {
 
 		if (cur_control && !input->isRandom()) {
 			// Mac OSX gets upset if this is set every frame
@@ -2102,6 +2180,26 @@ void Game::updatePlayerControl(const CameraOrientation &cam)
 {
 	LocalPlayer *player = client->getEnv().getLocalPlayer();
 
+	// Modal UI surfaces are truly exclusive: while a modal is visible, do not send any gameplay
+	// movement/jump/etc. Input belongs to the UI (same as menus/formspecs).
+	if (m_ui_manager && m_ui_manager->isReady() && m_ui_manager->hasVisibleModalSurface()) {
+		PlayerControl control(
+				false, false, false, false,
+				false,
+				player->control.aux1,
+				player->control.sneak,
+				false,
+				false,
+				false,
+				cam.camera_pitch,
+				cam.camera_yaw,
+				0.0f,
+				0.0f);
+		control.setMovementFromKeys();
+		client->setPlayerControl(control);
+		return;
+	}
+
 	// In free move (fly), the "toggle_sneak_key" setting would prevent precise
 	// up/down movements. Hence, enable the feature only during 'normal' movement.
 	const bool allow_sneak_toggle = m_cache_toggle_sneak_key &&
@@ -2118,8 +2216,8 @@ void Game::updatePlayerControl(const CameraOrientation &cam)
 		getTogglableKeyState(KeyType::AUX1,  m_cache_toggle_aux1_key, player->control.aux1),
 		getTogglableKeyState(KeyType::SNEAK, allow_sneak_toggle,      player->control.sneak),
 		isKeyDown(KeyType::ZOOM),
-		isKeyDown(KeyType::DIG),
-		isKeyDown(KeyType::PLACE),
+		digKeyDownForGameplay(),
+		placeKeyDownForGameplay(),
 		cam.camera_pitch,
 		cam.camera_yaw
 	);
@@ -2245,6 +2343,7 @@ const ClientEventHandler Game::clientEventHandler[CLIENTEVENT_MAX] = {
 	{&Game::handleClientEvent_OverrideDayNightRatio},
 	{&Game::handleClientEvent_CloudParams},
 	{&Game::handleClientEvent_UpdateCamera},
+	{&Game::handleClientEvent_RmlUiServer},
 };
 
 void Game::handleClientEvent_None(ClientEvent *event, CameraOrientation *cam)
@@ -2568,6 +2667,12 @@ void Game::handleClientEvent_UpdateCamera(ClientEvent *event, CameraOrientation 
 	updateCameraMode();
 }
 
+void Game::handleClientEvent_RmlUiServer(ClientEvent *event, CameraOrientation *cam)
+{
+	(void)cam;
+	apply_rmlui_server_network_event_from_client_event(client, event);
+}
+
 void Game::processClientEvents(CameraOrientation *cam)
 {
 	while (client->hasClientEvents()) {
@@ -2724,6 +2829,36 @@ void Game::processPlayerInteraction(f32 dtime, bool show_hud)
 {
 	LocalPlayer *player = client->getEnv().getLocalPlayer();
 
+	if (m_ui_manager && m_ui_manager->isReady() && input)
+		m_ui_manager->processRmlUiInput(input);
+
+	// Modal surfaces are truly exclusive: while any modal is visible, block all gameplay interaction
+	// (dig/place/use/punch/hotbar changes) and clear per-frame key edges to prevent stale actions
+	// from firing when the modal closes.
+	if (m_ui_manager && m_ui_manager->isReady() && m_ui_manager->hasVisibleModalSurface()) {
+		if (runData.digging) {
+			runData.digging = false;
+			client->interact(INTERACT_STOP_DIGGING, runData.pointed_old);
+			client->setCrack(-1, v3s16(0, 0, 0));
+			runData.dig_time = 0.0f;
+		}
+		runData.btn_down_for_dig = false;
+		runData.punching = false;
+		runData.dig_instantly = false;
+		runData.repeat_place_timer = 0.0f;
+
+		// Clear key edges for this frame so gameplay does not see them later.
+		input->clearWasKeyPressed();
+		input->clearWasKeyReleased();
+		wasKeyDown(KeyType::DIG);
+		wasKeyDown(KeyType::PLACE);
+		input->joystick.clearWasKeyPressed(KeyType::DIG);
+		input->joystick.clearWasKeyPressed(KeyType::PLACE);
+		input->joystick.clearWasKeyReleased(KeyType::DIG);
+		input->joystick.clearWasKeyReleased(KeyType::PLACE);
+		return;
+	}
+
 	const v3f camera_direction = camera->getDirection();
 	const v3s16 camera_offset  = camera->getOffset();
 
@@ -2783,8 +2918,8 @@ void Game::processPlayerInteraction(f32 dtime, bool show_hud)
 		g_touchcontrols->applyContextControls(mode);
 		// applyContextControls may change dig/place input.
 		// Update again so that TOSERVER_INTERACT packets have the correct controls set.
-		player->control.dig = isKeyDown(KeyType::DIG);
-		player->control.place = isKeyDown(KeyType::PLACE);
+		player->control.dig = digKeyDownForGameplay();
+		player->control.place = placeKeyDownForGameplay();
 	}
 
 	// Note that updating the selection mesh every frame is not particularly efficient,
@@ -2792,7 +2927,7 @@ void Game::processPlayerInteraction(f32 dtime, bool show_hud)
 	hud->updateSelectionMesh(camera_offset);
 
 	// Allow digging again if button is not pressed
-	if (runData.digging_blocked && !isKeyDown(KeyType::DIG))
+	if (runData.digging_blocked && !digKeyDownForGameplay())
 		runData.digging_blocked = false;
 
 	/*
@@ -2829,7 +2964,7 @@ void Game::processPlayerInteraction(f32 dtime, bool show_hud)
 		runData.dig_instantly = false;
 	}
 
-	if (!runData.digging && runData.btn_down_for_dig && !isKeyDown(KeyType::DIG))
+	if (!runData.digging && runData.btn_down_for_dig && !digKeyDownForGameplay())
 		runData.btn_down_for_dig = false;
 
 	runData.punching = false;
@@ -2839,13 +2974,13 @@ void Game::processPlayerInteraction(f32 dtime, bool show_hud)
 		selected_def.sound_use : selected_def.sound_use_air;
 
 	// Prepare for repeating, unless we're not supposed to
-	if (isKeyDown(KeyType::PLACE) && !g_settings->getBool("safe_dig_and_place"))
+	if (placeKeyDownForGameplay() && !g_settings->getBool("safe_dig_and_place"))
 		runData.repeat_place_timer += dtime;
 	else
 		runData.repeat_place_timer = 0;
 
-	if (selected_def.usable && isKeyDown(KeyType::DIG)) {
-		if (wasKeyPressed(KeyType::DIG) && (!client->modsLoaded() ||
+	if (selected_def.usable && digKeyDownForGameplay()) {
+		if (digKeyPressedForGameplay() && (!client->modsLoaded() ||
 				!client->getScript()->on_item_use(selected_item, pointed)))
 			client->interact(INTERACT_USE, pointed);
 	} else if (pointed.type == POINTEDTHING_NODE) {
@@ -2855,19 +2990,19 @@ void Game::processPlayerInteraction(f32 dtime, bool show_hud)
 		bool basic_debug_allowed = client->checkPrivilege("debug") || (player->hud_flags & HUD_FLAG_BASIC_DEBUG);
 		handlePointingAtObject(pointed, tool_item, hand_item, player_position,
 				m_game_ui->m_flags.show_basic_debug && basic_debug_allowed);
-	} else if (isKeyDown(KeyType::DIG)) {
+	} else if (digKeyDownForGameplay()) {
 		// When button is held down in air, show continuous animation
 		runData.punching = true;
 		// Run callback even though item is not usable
-		if (wasKeyPressed(KeyType::DIG) && client->modsLoaded())
+		if (digKeyPressedForGameplay() && client->modsLoaded())
 			client->getScript()->on_item_use(selected_item, pointed);
-	} else if (wasKeyPressed(KeyType::PLACE)) {
+	} else if (placeKeyPressedForGameplay()) {
 		handlePointingAtNothing(selected_item);
 	}
 
 	runData.pointed_old = pointed;
 
-	if (runData.punching || wasKeyPressed(KeyType::DIG))
+	if (runData.punching || digKeyPressedForGameplay())
 		camera->setDigging(0); // dig animation
 
 	input->clearWasKeyPressed();
@@ -2997,7 +3132,7 @@ void Game::handlePointingAtNode(const PointedThing &pointed,
 
 	ClientMap &map = client->getEnv().getClientMap();
 
-	if (runData.nodig_delay_timer <= 0.0 && isKeyDown(KeyType::DIG)
+	if (runData.nodig_delay_timer <= 0.0 && digKeyDownForGameplay()
 			&& !runData.digging_blocked
 			&& client->checkPrivilege("interact")) {
 		handleDigging(pointed, nodepos, selected_item, hand_item, dtime);
@@ -3017,7 +3152,7 @@ void Game::handlePointingAtNode(const PointedThing &pointed,
 		}
 	}
 
-	if ((wasKeyPressed(KeyType::PLACE) ||
+	if ((placeKeyPressedForGameplay() ||
 			runData.repeat_place_timer >= m_repeat_place_time) &&
 			client->checkPrivilege("interact")) {
 		runData.repeat_place_timer = 0;
@@ -3276,7 +3411,7 @@ void Game::handlePointingAtObject(const PointedThing &pointed, const ItemStack &
 
 	m_game_ui->setInfoText(infotext);
 
-	if (isKeyDown(KeyType::DIG)) {
+	if (digKeyDownForGameplay()) {
 		bool do_punch = false;
 		bool do_punch_damage = false;
 
@@ -3286,7 +3421,7 @@ void Game::handlePointingAtObject(const PointedThing &pointed, const ItemStack &
 			runData.object_hit_delay_timer = object_hit_delay;
 		}
 
-		if (wasKeyPressed(KeyType::DIG))
+		if (digKeyPressedForGameplay())
 			do_punch = true;
 
 		if (do_punch) {
@@ -3307,7 +3442,7 @@ void Game::handlePointingAtObject(const PointedThing &pointed, const ItemStack &
 			if (!disable_send)
 				client->interact(INTERACT_START_DIGGING, pointed);
 		}
-	} else if (wasKeyDown(KeyType::PLACE)) {
+	} else if (wasKeyDown(KeyType::PLACE) && placeKeyDownForGameplay()) {
 		infostream << "Pressed place button while pointing at object" << std::endl;
 		client->interact(INTERACT_PLACE, pointed);  // place
 	}
@@ -3449,11 +3584,8 @@ void Game::updateFrame(ProfilerGraph *graph, RunStats *stats, f32 dtime,
 {
 	ZoneScoped;
 	TimeTaker tt_update("Game::updateFrame()");
-#ifdef ENABLE_RMLUI_SPIKE
-	// TODO: VERIFY: same per-frame cadence as gameplay (see Game::run loop).
-	if (m_rml_context)
-		m_rml_context->Update();
-#endif
+	if (m_ui_manager)
+		m_ui_manager->update(dtime, driver);
 	LocalPlayer *player = client->getEnv().getLocalPlayer();
 
 	/*
@@ -3767,6 +3899,10 @@ void Game::drawScene(ProfilerGraph *graph, RunStats *stats)
 					core::rect<s32>(0, 0, screensize.X, screensize.Y),
 					NULL);
 	}
+
+	if (m_ui_manager)
+		m_ui_manager->render(driver, screensize);
+	// No further draws here: RmlUi is not covered by another pass before endScene().
 
 	this->driver->endScene();
 

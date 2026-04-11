@@ -570,6 +570,17 @@ list(APPEND client_SRCS
 	${unittest_client_SRCS}
 )
 
+if(BUILD_CLIENT)
+	list(APPEND client_SRCS
+		${CMAKE_CURRENT_SOURCE_DIR}/client/ui_font.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/client/rmlui_irrlicht_render_interface.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/client/ui_declarative_compile.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/client/ui_declarative_compile_json.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/client/rmlui_server_apply.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/client/ui_manager.cpp
+	)
+endif()
+
 # Server sources
 # (nothing here because a client always comes with a server)
 set(server_SRCS
@@ -774,16 +785,12 @@ if(BUILD_CLIENT)
 	if (USE_OPENSSL)
 		target_link_libraries(${PROJECT_NAME} OpenSSL::Crypto)
 	endif()
+	target_link_libraries(${PROJECT_NAME} rmlui_core)
 	if(BUILD_UNITTESTS OR BUILD_BENCHMARKS)
 		target_link_libraries(${PROJECT_NAME} Catch2::Catch2)
 	endif()
 	if(BUILD_WITH_TRACY)
 		target_link_libraries(${PROJECT_NAME} Tracy::TracyClient)
-	endif()
-
-	if(ENABLE_RMLUI_SPIKE)
-		target_link_libraries(${PROJECT_NAME} rmlui_core)
-		target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_RMLUI_SPIKE)
 	endif()
 
 	if(PRECOMPILE_HEADERS)

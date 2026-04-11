@@ -37,6 +37,7 @@ enum ClientEventType : u8
 	CE_OVERRIDE_DAY_NIGHT_RATIO,
 	CE_CLOUD_PARAMS,
 	CE_UPDATE_CAMERA,
+	CE_RMLUI_SERVER,
 	CLIENTEVENT_MAX,
 };
 
@@ -128,5 +129,11 @@ struct ClientEvent
 		SunParams *sun_params;
 		MoonParams *moon_params;
 		StarParams *star_params;
+		struct
+		{
+			u8 op;
+			std::string *surface_id;
+			std::string *payload;
+		} rmlui_server;
 	};
 };

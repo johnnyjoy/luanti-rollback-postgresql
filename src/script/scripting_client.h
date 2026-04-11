@@ -6,6 +6,9 @@
 #pragma once
 
 #include <cassert>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "cpp_api/s_base.h"
 #include "cpp_api/s_client.h"
@@ -17,6 +20,7 @@ class Client;
 class LocalPlayer;
 class Camera;
 class Minimap;
+struct UiInstrumentEvent;
 
 class ClientScripting:
 	virtual public ScriptApiBase,
@@ -31,6 +35,16 @@ public:
 	void on_camera_ready(Camera *camera);
 	void on_minimap_ready(Minimap *minimap);
 
+	// Per-surface button handler refs for client-authored declarative UI.
+	void releaseRmlUiServerButtonRefs(const std::string &surface_id);
+	void setRmlUiServerButtonRefs(const std::string &surface_id, std::vector<int> &&refs);
+	void releaseAllRmlUiServerButtonRefs();
+
+	// Global instrument handler (client-authored policy hook).
+	void setRmlUiInstrumentHandler(int lua_registry_ref);
+	void clearRmlUiInstrumentHandler();
+	bool invokeRmlUiInstrumentEvent(const UiInstrumentEvent &ev);
+
 protected:
 	// from ScriptApiSecurity:
 	bool checkPathInternal(const std::string &abs_path, bool write_required,
@@ -43,4 +57,7 @@ protected:
 
 private:
 	virtual void InitializeModApi(lua_State *L, int top);
+
+	std::unordered_map<std::string, std::vector<int>> m_rmlui_server_button_refs;
+	int m_rmlui_instrument_handler_ref = LUA_NOREF;
 };

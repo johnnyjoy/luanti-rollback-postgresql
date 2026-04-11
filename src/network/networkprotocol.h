@@ -710,7 +710,22 @@ enum ToClientCommand : u16
 			u8[len] serialized ParticleParameters
 	*/
 
-	TOCLIENT_NUM_MSG_TYPES = 0x65,
+	TOCLIENT_UI_SERVER = 0x65,
+	/*
+		Server-driven declarative UI (core.ui / RmlUi) for one client.
+
+		u8 command:
+			0 = mount declarative tree (JSON, same shape as core.ui.panel content table)
+			1 = set_state (JSON object: string keys -> string values)
+			2 = unmount surface
+			3 = instrument_mode control (payload: {active:bool})
+			4 = instrument_apply (payload: JSON patch; placement/style changes decided by Lua)
+		std::string surface_id
+		if command is 0, 1, 3, or 4:
+			long string payload (JSON)
+	*/
+
+	TOCLIENT_NUM_MSG_TYPES = 0x66,
 };
 
 enum ToServerCommand : u16
@@ -917,7 +932,21 @@ enum ToServerCommand : u16
 		v2f32 max_fs_info
 	*/
 
-	TOSERVER_NUM_MSG_TYPES = 0x54,
+	TOSERVER_UI_ACTION = 0x54,
+	/*
+		Client → server UI action (e.g. declarative button press).
+		std::string surface_id
+		u32 button_index (matches luaui_btn_<index> on the mounted document)
+	*/
+
+	TOSERVER_UI_INSTRUMENT = 0x55,
+	/*
+		Client → server instrument event (drag/resize handles in instrument mode).
+		std::string surface_id
+		long string payload (JSON)
+	*/
+
+	TOSERVER_NUM_MSG_TYPES = 0x56,
 };
 
 enum AuthMechanism

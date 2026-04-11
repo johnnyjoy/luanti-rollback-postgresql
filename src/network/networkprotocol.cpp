@@ -77,6 +77,7 @@
 	PROTOCOL VERSION 52
 		Added "skip_wield_anim" to TOCLIENT_INVENTORY
 		Type of TOCLIENT_HUDADD `size` changed from v2s32 to v2f
+		Add TOCLIENT_UI_SERVER (server-driven declarative UI for one client)
 		[scheduled bump for 5.16.0]
 */
 

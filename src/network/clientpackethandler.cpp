@@ -1918,3 +1918,22 @@ void Client::handleCommand_SetLighting(NetworkPacket *pkt)
 		*pkt >> lighting.shadow_direction;
 	} while (0);
 }
+
+void Client::handleCommand_RmlUiServer(NetworkPacket *pkt)
+{
+	u8 op = 0;
+	*pkt >> op;
+	std::string surface_id;
+	*pkt >> surface_id;
+	std::string payload;
+	if (op == 0 || op == 1 || op == 3 || op == 4)
+		payload = pkt->readLongString();
+
+	auto *event = new ClientEvent();
+	event->type = CE_RMLUI_SERVER;
+	event->rmlui_server.op = op;
+	event->rmlui_server.surface_id = new std::string(std::move(surface_id));
+	event->rmlui_server.payload =
+			(op == 0 || op == 1 || op == 3 || op == 4) ? new std::string(std::move(payload)) : nullptr;
+	m_client_event_queue.push(event);
+}

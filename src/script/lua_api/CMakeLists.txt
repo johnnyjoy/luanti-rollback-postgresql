@@ -24,15 +24,18 @@ set(common_SCRIPT_LUA_API_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/l_playermeta.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_rollback.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_server.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/l_ui_authoring.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/l_ui_server_public.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_settings.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_storage.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_util.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_vmanip.cpp
-	PARENT_SCOPE)
+)
 
 set(client_SCRIPT_LUA_API_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/l_camera.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_client.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/l_ui_client_public.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_client_common.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_client_sound.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_localplayer.cpp
@@ -44,4 +47,7 @@ set(client_SCRIPT_LUA_API_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/l_pause_menu.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_storage.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/l_sscsm.cpp
-	PARENT_SCOPE)
+)
+
+set(common_SCRIPT_LUA_API_SRCS ${common_SCRIPT_LUA_API_SRCS} PARENT_SCOPE)
+set(client_SCRIPT_LUA_API_SRCS ${client_SCRIPT_LUA_API_SRCS} PARENT_SCOPE)
