@@ -317,8 +317,14 @@ void apply_rmlui_server_network_event(Client *client, u8 op,
 	const std::vector<UiDeclarativeBindingEntry> *bind_arg =
 			bind_ptr && !bind_ptr->empty() ? bind_ptr : nullptr;
 	const int lua_btn_count = max_btn;
-	if (!ui->mount(sid, layer, 0, rml.c_str(), doc_url.c_str(), em, lua_btn_count,
-			    bind_arg, modal_mount, dismiss_policy, pos_ptr, layout_ptr)) {
+	UiMountOptions mount_opts;
+	mount_opts.lua_button_count = lua_btn_count;
+	mount_opts.bindings = bind_arg;
+	mount_opts.modal_document = modal_mount;
+	mount_opts.dismiss_policy = dismiss_policy;
+	mount_opts.positioning = pos_ptr;
+	mount_opts.layout = layout_ptr;
+	if (!ui->mount(sid, layer, 0, rml.c_str(), doc_url.c_str(), em, mount_opts)) {
 		warningstream << "[RmlUi] mount failed: " << em << std::endl;
 		return;
 	}

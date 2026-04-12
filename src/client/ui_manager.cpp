@@ -559,47 +559,45 @@ static void apply_surface_positioning(UiManager::Impl *impl, SurfaceEntry &se, i
 	pos->SetProperty(Rml::String("top"), Rml::String(std::to_string(y) + "px"));
 }
 
-bool mount_surface_impl(UiManager::Impl *impl, const std::string &surface_id, UiLayer layer,
-		int priority, const char *rml_memory, const char *document_url,
-		std::string &error_message, const std::vector<UiDeclarativeBindingEntry> *bindings,
-		bool modal_document, UiDismissPolicy dismiss_policy, int declarative_button_count,
-		const UiSurfacePositioning *positioning,
-		const UiSurfaceLayout *layout)
+bool mount_surface_impl(UiManager::Impl *impl, const UiMountSurfaceDesc &desc,
+		std::string &error_message)
 {
 	if (!impl || !impl->rml_context) {
 		error_message = "RmlUi: no context";
 		return false;
 	}
-	if (impl->surfaces.count(surface_id) != 0) {
+	if (impl->surfaces.count(desc.surface_id) != 0) {
 		error_message = "RmlUi: surface id already mounted";
 		return false;
 	}
 
-	Rml::ElementDocument *doc = impl->rml_context->LoadDocumentFromMemory(rml_memory, document_url);
+	Rml::ElementDocument *doc = impl->rml_context->LoadDocumentFromMemory(desc.rml_memory,
+			desc.document_url);
 	if (!doc) {
 		error_message = "RmlUi: LoadDocumentFromMemory failed";
 		return false;
 	}
 
+	const UiMountOptions &opt = desc.options;
 	SurfaceEntry entry;
-	entry.id = surface_id;
-	entry.layer = layer;
-	entry.priority = priority;
+	entry.id = desc.surface_id;
+	entry.layer = desc.layer;
+	entry.priority = desc.priority;
 	entry.visible = true;
-	entry.modal_document = modal_document;
-	entry.dismiss_policy = dismiss_policy;
+	entry.modal_document = opt.modal_document;
+	entry.dismiss_policy = opt.dismiss_policy;
 	entry.document = doc;
-	entry.declarative_button_count = declarative_button_count;
-	if (positioning)
-		entry.positioning = *positioning;
-	if (layout)
-		entry.layout = *layout;
-	if (bindings)
-		entry.binding_targets = *bindings;
-	doc->Show(modal_document ? Rml::ModalFlag::Modal : Rml::ModalFlag::None);
+	entry.declarative_button_count = opt.lua_button_count;
+	if (opt.positioning)
+		entry.positioning = *opt.positioning;
+	if (opt.layout)
+		entry.layout = *opt.layout;
+	if (opt.bindings)
+		entry.binding_targets = *opt.bindings;
+	doc->Show(opt.modal_document ? Rml::ModalFlag::Modal : Rml::ModalFlag::None);
 
-	impl->surfaces.emplace(surface_id, std::move(entry));
-	impl->surface_mount_sequence.push_back(surface_id);
+	impl->surfaces.emplace(desc.surface_id, std::move(entry));
+	impl->surface_mount_sequence.push_back(desc.surface_id);
 	return true;
 }
 
@@ -720,18 +718,24 @@ bool UiManager::initialize(video::IVideoDriver *driver, std::string &error_messa
 		return false;
 	}
 
-	if (!mount_surface_impl(m_impl.get(), OVERLAY_SURFACE_ID, UiLayer::OVERLAY, 0,
-				ui_font_get_builtin_overlay_rml_cached(), "rmlui://surface/overlay",
-				error_message, nullptr, false, UiDismissPolicy::None, 0, nullptr, nullptr)) {
-		close_surface_documents_impl(m_impl.get());
-		Rml::RemoveContext(RMLUI_CONTEXT_NAME);
-		m_impl->rml_context = nullptr;
-		rmlui_release_one_init_ref();
-		m_impl->rml_library_initialized = false;
-		ui_font_clear_resolution_state();
-		Rml::SetRenderInterface(nullptr);
-		m_impl->rml_render.reset();
-		return false;
+	{
+		UiMountSurfaceDesc od;
+		od.surface_id = OVERLAY_SURFACE_ID;
+		od.layer = UiLayer::OVERLAY;
+		od.priority = 0;
+		od.rml_memory = ui_font_get_builtin_overlay_rml_cached();
+		od.document_url = "rmlui://surface/overlay";
+		if (!mount_surface_impl(m_impl.get(), od, error_message)) {
+			close_surface_documents_impl(m_impl.get());
+			Rml::RemoveContext(RMLUI_CONTEXT_NAME);
+			m_impl->rml_context = nullptr;
+			rmlui_release_one_init_ref();
+			m_impl->rml_library_initialized = false;
+			ui_font_clear_resolution_state();
+			Rml::SetRenderInterface(nullptr);
+			m_impl->rml_render.reset();
+			return false;
+		}
 	}
 
 	m_ready = true;
@@ -1490,26 +1494,26 @@ after_primary_down:
 
 bool UiManager::mount(const std::string &surface_id, UiLayer layer, int priority,
 		const char *rml_memory, const char *document_url, std::string &error_message,
-		int lua_button_count,
-		const std::vector<UiDeclarativeBindingEntry> *bindings, bool modal_document,
-		UiDismissPolicy dismiss_policy,
-		const UiSurfacePositioning *positioning,
-		const UiSurfaceLayout *layout)
+		const UiMountOptions &options)
 {
 	if (!m_ready || !m_impl || !m_impl->rml_context) {
 		error_message = "RmlUi: UiManager not initialized";
 		return false;
 	}
-	if (!mount_surface_impl(m_impl.get(), surface_id, layer, priority, rml_memory, document_url,
-				error_message, bindings, modal_document, dismiss_policy, lua_button_count,
-				positioning, layout)) {
+	UiMountSurfaceDesc desc;
+	desc.surface_id = surface_id;
+	desc.layer = layer;
+	desc.priority = priority;
+	desc.rml_memory = rml_memory;
+	desc.document_url = document_url;
+	desc.options = options;
+	if (!mount_surface_impl(m_impl.get(), desc, error_message))
 		return false;
-	}
 	{
 		auto it = m_impl->surfaces.find(surface_id);
 		// UX: when mounting a modal surface, establish an initial keyboard focus target so
 		// Tab navigation and text input behave predictably for keyboard users.
-		if (modal_document && it != m_impl->surfaces.end() && it->second.document)
+		if (options.modal_document && it != m_impl->surfaces.end() && it->second.document)
 			it->second.document->Focus();
 	}
 	update_modal_focus_trap(m_impl.get());
@@ -1800,8 +1804,7 @@ void UiManager::enterInstrumentMode()
 				"</rml>";
 		std::string em;
 		(void)mount("instrument_mode_overlay", UiLayer::OVERLAY, 1000, kRml,
-				"rmlui://instrument_mode_overlay", em, 0, nullptr, false,
-				UiDismissPolicy::None, nullptr, nullptr);
+				"rmlui://instrument_mode_overlay", em, UiMountOptions());
 	}
 }
 

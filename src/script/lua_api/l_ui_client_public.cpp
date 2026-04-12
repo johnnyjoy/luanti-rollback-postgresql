@@ -219,9 +219,14 @@ static bool apply_declarative_tree(
 		pos_ptr = &pos_spec;
 	}
 
-	if (!ui->mount(surface_id, layer, 0, rml.c_str(), doc_url.c_str(), err,
-			    static_cast<int>(button_refs.size()), bind_ptr, modal_mount, dismiss_policy,
-			    pos_ptr, layout_ptr)) {
+	UiMountOptions mount_opts;
+	mount_opts.lua_button_count = static_cast<int>(button_refs.size());
+	mount_opts.bindings = bind_ptr;
+	mount_opts.modal_document = modal_mount;
+	mount_opts.dismiss_policy = dismiss_policy;
+	mount_opts.positioning = pos_ptr;
+	mount_opts.layout = layout_ptr;
+	if (!ui->mount(surface_id, layer, 0, rml.c_str(), doc_url.c_str(), err, mount_opts)) {
 		for (int r : button_refs)
 			luaL_unref(L, LUA_REGISTRYINDEX, r);
 		err_out = err;

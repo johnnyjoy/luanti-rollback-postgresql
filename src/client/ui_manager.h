@@ -73,6 +73,26 @@ struct UiSurfaceLayout {
 	std::string drag_handle_id;
 };
 
+/// Optional parameters for @ref UiManager::mount (keeps arity within project style limits).
+struct UiMountOptions {
+	int lua_button_count = 0;
+	const std::vector<UiDeclarativeBindingEntry> *bindings = nullptr;
+	bool modal_document = false;
+	UiDismissPolicy dismiss_policy = UiDismissPolicy::None;
+	const UiSurfacePositioning *positioning = nullptr;
+	const UiSurfaceLayout *layout = nullptr;
+};
+
+/// Bundle for internal mount helpers (friend); keeps @c mount_surface_impl arity small.
+struct UiMountSurfaceDesc {
+	std::string surface_id;
+	UiLayer layer = UiLayer::OVERLAY;
+	int priority = 0;
+	const char *rml_memory = nullptr;
+	const char *document_url = nullptr;
+	UiMountOptions options;
+};
+
 /// Instrument-mode pointer / drag / resize event emitted by the client.
 /// The engine supplies hit-testing and capture mechanics; Lua (typically server-side)
 /// decides behavior and returns explicit apply patches.
@@ -165,18 +185,11 @@ public:
 	void render(video::IVideoDriver *driver, const v2u32 &screensize);
 
 	/// Mount a document from memory. `document_url` must be unique (e.g. `rmlui://overlay`).
-	/// @param lua_button_count Number of `luaui_btn_N` ids with Lua `on_click` refs
-	///        (from declarative compile); used to attach internal RmlUi click listeners.
-	/// @param bindings Optional compile-time binding targets (core.ui.bind); used by set_state
-	///        to patch live elements without remounting the surface.
+	/// @param options Declarative mount options (button count, bindings, modal, dismiss,
+	///        positioning, layout). Defaults to empty @ref UiMountOptions.
 	bool mount(const std::string &surface_id, UiLayer layer, int priority,
 			const char *rml_memory, const char *document_url, std::string &error_message,
-			int lua_button_count = 0,
-			const std::vector<UiDeclarativeBindingEntry> *bindings = nullptr,
-			bool modal_document = false,
-			UiDismissPolicy dismiss_policy = UiDismissPolicy::None,
-			const UiSurfacePositioning *positioning = nullptr,
-			const UiSurfaceLayout *layout = nullptr);
+			const UiMountOptions &options = UiMountOptions());
 
 	/// Apply surface-local string state to bound props. Does not reload RML or remount the
 	/// document. Use compile with core.ui.bind for targets; structural changes use a new mount
@@ -298,14 +311,8 @@ private:
 	std::optional<DeclarativeButtonRef> findDeclarativeButtonFromHover(Rml::Context *ctx) const;
 
 	// ui_manager.cpp helpers (friend so they may use Impl)
-	friend bool mount_surface_impl(Impl *impl, const std::string &surface_id, UiLayer layer,
-			int priority, const char *rml_memory, const char *document_url,
-			std::string &error_message,
-			const std::vector<UiDeclarativeBindingEntry> *bindings, bool modal_document,
-			UiDismissPolicy dismiss_policy,
-			int declarative_button_count,
-			const UiSurfacePositioning *positioning,
-			const UiSurfaceLayout *layout);
+	friend bool mount_surface_impl(Impl *impl, const UiMountSurfaceDesc &desc,
+			std::string &error_message);
 	friend void close_surface_documents_impl(Impl *impl);
 	friend bool any_surface_visible_for_render_impl(const Impl *impl);
 	friend size_t count_surfaces_total(const Impl *impl);
