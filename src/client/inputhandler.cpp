@@ -291,6 +291,9 @@ bool MyEventReceiver::OnEvent(const SEvent &event)
 		// In case of touchcontrols, we have to handle different events
 		g_touchcontrols->translateEvent(event);
 		return true;
+	} else if (event.EventType == EET_JOYSTICK_INPUT_EVENT) {
+		// joystick may be nullptr if game is launched with '--random-input' parameter
+		return joystick && joystick->handleEvent(event.JoystickEvent);
 	} else if (event.EventType == EET_MOUSE_INPUT_EVENT && event.MouseInput.Event == EMIE_MOUSE_WHEEL) {
 		mouse_wheel += event.MouseInput.Wheel;
 	} else if (event.EventType == EET_USER_EVENT && event.UserEvent.type == EUET_GAME_KEY) {
