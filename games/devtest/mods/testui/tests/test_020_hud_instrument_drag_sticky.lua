@@ -5,7 +5,7 @@
 	- Run: /testui 020
 	- Instrument mode is enabled automatically; ESC exits.
 	- Drag HUD boxes near edges/corners/center to snap.
-	- Drag from the title bar; resize by grabbing an edge/corner.
+	- Drag from non-interactive panel areas (no grip strip); resize by grabbing an edge/corner.
 	- Resize window; elements should remain reachable (keep_in_view).
 ]]
 
@@ -26,10 +26,7 @@ local function hud_box(root_id, title, subtitle)
 			color = "#eaf2fb",
 		},
 		children = {
-			-- Drag handle region (instrument mode): clicking here starts drag, not actions.
 			ui.box({
-				id = "instrument_drag",
-				drag_handle = true,
 				style = {
 					display = "block",
 					padding = "8px 12px",
@@ -41,7 +38,6 @@ local function hud_box(root_id, title, subtitle)
 					ui.row({
 						gap = "sm",
 						children = {
-							ui.text("≡"),
 							ui.text(title),
 						},
 					}),
@@ -73,8 +69,8 @@ local function start_for_player(player)
 		end
 
 		core.chat_send_player(name, "[testui] TEST_020: Mounted 2 HUD surfaces. Instrument mode is enabled; ESC exits.")
-		core.chat_send_player(name, "[testui] TEST_020: Drag near edges/corners/center to test sticky anchors + clamping.")
-		core.chat_send_player(name, "[testui] TEST_020: Resize by grabbing an edge/corner (no visible handle).")
+		core.chat_send_player(name, "[testui] TEST_020: Drag non-interactive panel chrome (not buttons/slots/inputs).")
+		core.chat_send_player(name, "[testui] TEST_020: Snap by dragging near edges/corners/center; resize on implicit edge/corner zones.")
 
 		local alive = true
 		local handles = {}

@@ -5,9 +5,16 @@
 	- Lua decides whether a press begins a drag (drag handle region vs controls).
 	- Lua applies movement / snapping by calling core.ui.hud_placement_set.
 
+	Resize policy (reference implementation for server handlers):
+	- `core.rmlui_compute_instrument_resize_patch(ctx, root_element_id, opts?)` is defined in
+	  `builtin/common/rmlui_instrument_resize.lua` (loaded from builtin/init.lua for game + client).
+	- Server `instrument.on_event` should call it on resize_move / resize_end and return the patch.
+
 	Default behavior here is intentionally minimal and opt-in:
 	- A HUD surface must declare `instrument = { movable = true, ... }` on mount.
-	- A drag begins only if the hover chain contains an element with id == "instrument_drag".
+	- Server-driven HUD drags: the engine allows implicit drags from non-interactive chrome (see
+	  `docs/ui-usage-guide.md`); this client shim still gates `pointer_down` on `instrument_drag` for
+	  optional client-local experiments only.
 ]]
 
 if not core.ui or not core.ui.instrument_set_handler then

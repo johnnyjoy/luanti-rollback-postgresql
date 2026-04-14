@@ -287,6 +287,12 @@ void apply_rmlui_server_network_event(Client *client, u8 op,
 			layout_spec.resizable = lo["resizable"].asBool();
 		if (lo.isMember("sticky") && lo["sticky"].isBool())
 			layout_spec.sticky = lo["sticky"].asBool();
+		if (lo.isMember("keep_aspect") && lo["keep_aspect"].isBool())
+			layout_spec.keep_aspect = lo["keep_aspect"].asBool();
+		if (lo.isMember("aspect_ratio") && lo["aspect_ratio"].isNumeric()) {
+			layout_spec.aspect_ratio = static_cast<float>(lo["aspect_ratio"].asDouble());
+			layout_spec.aspect_ratio_set = true;
+		}
 		if (lo.isMember("drag_handle") && lo["drag_handle"].isString())
 			layout_spec.drag_handle_id = lo["drag_handle"].asString();
 		if (lo.isMember("anchors") && lo["anchors"].isArray()) {

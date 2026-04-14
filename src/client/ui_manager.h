@@ -62,10 +62,16 @@ struct UiSurfacePositioning {
 };
 
 /// Instrument edit eligibility for HUD-style surfaces (v1).
+/// Aspect fields apply to any surface using this layout contract (not instrument-named only).
 struct UiSurfaceLayout {
 	bool movable = false;
 	bool resizable = false;
 	bool sticky = true;
+	/// When true, resize patches should preserve width:height (Lua policy; C++ forwards contract).
+	bool keep_aspect = false;
+	/// When set, fixed ratio for aspect-locked resize; when unset, Lua derives from size at resize start.
+	bool aspect_ratio_set = false;
+	float aspect_ratio = 1.0f;
 	/// When empty, all anchors are allowed.
 	std::vector<UiAnchor> allowed_anchors;
 	/// Explicit drag handle id (hover chain must contain this id to start a drag).
@@ -139,6 +145,10 @@ struct UiInstrumentEvent {
 	/// Current placement record (if any) for the surface.
 	bool has_placement = false;
 	std::string placement_anchor; // token like "top-left"
+	/// Nine-way screen region from geometry (viewport thirds of instrument center), not anchor alone.
+	std::string placement_region;
+	/// "corner" | "edge" | "center" — derived from @ref placement_region.
+	std::string placement_kind;
 	s32 placement_x = 0;
 	s32 placement_y = 0;
 	bool placement_keep_in_view = true;
@@ -148,6 +158,9 @@ struct UiInstrumentEvent {
 	bool instrument_movable = false;
 	bool instrument_resizable = false;
 	bool instrument_sticky = true;
+	bool instrument_keep_aspect = false;
+	bool instrument_aspect_ratio_set = false;
+	float instrument_aspect_ratio = 1.0f;
 	std::vector<std::string> instrument_anchors;
 
 	/// Drag mechanics: populated for drag_* phases.

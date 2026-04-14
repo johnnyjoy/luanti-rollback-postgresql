@@ -111,7 +111,7 @@ static bool send_ui_server_packet(Server *server, RemotePlayer *player, u8 op,
 		if (op == 0 || op == 1 || op == 3 || op == 4)
 			pkt.putLongString(payload);
 		server->Send(&pkt);
-		infostream << "[RmlUi TRACE] stage=2 server_send_packet sid=\"" << surface_id
+		verbosestream << "[RmlUi TRACE] stage=2 server_send_packet sid=\"" << surface_id
 				<< "\" op=" << static_cast<int>(op)
 				<< " reason_tag=" << (reason_tag ? reason_tag : "(null)")
 				<< " payload_bytes=" << payload.size()

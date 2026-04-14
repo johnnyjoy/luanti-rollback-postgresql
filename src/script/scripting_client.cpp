@@ -208,6 +208,14 @@ bool ClientScripting::invokeRmlUiInstrumentEvent(const UiInstrumentEvent &ev)
 		lua_newtable(L);
 		lua_pushstring(L, ev.placement_anchor.c_str());
 		lua_setfield(L, -2, "anchor");
+		const char *region = ev.placement_region.empty() ? ev.placement_anchor.c_str()
+								   : ev.placement_region.c_str();
+		lua_pushstring(L, region);
+		lua_setfield(L, -2, "region");
+		if (!ev.placement_kind.empty()) {
+			lua_pushstring(L, ev.placement_kind.c_str());
+			lua_setfield(L, -2, "kind");
+		}
 		lua_pushinteger(L, ev.placement_x);
 		lua_setfield(L, -2, "x");
 		lua_pushinteger(L, ev.placement_y);
@@ -215,14 +223,33 @@ bool ClientScripting::invokeRmlUiInstrumentEvent(const UiInstrumentEvent &ev)
 		lua_pushboolean(L, ev.placement_keep_in_view);
 		lua_setfield(L, -2, "keep_in_view");
 		lua_setfield(L, t, "placement");
+	} else if (!ev.placement_region.empty() || !ev.placement_kind.empty()) {
+		lua_newtable(L);
+		if (!ev.placement_region.empty()) {
+			lua_pushstring(L, ev.placement_region.c_str());
+			lua_setfield(L, -2, "region");
+		}
+		if (!ev.placement_kind.empty()) {
+			lua_pushstring(L, ev.placement_kind.c_str());
+			lua_setfield(L, -2, "kind");
+		}
+		lua_setfield(L, t, "placement");
 	}
 
 	if (ev.has_instrument) {
 		lua_newtable(L);
 		lua_pushboolean(L, ev.instrument_movable);
 		lua_setfield(L, -2, "movable");
+		lua_pushboolean(L, ev.instrument_resizable);
+		lua_setfield(L, -2, "resizable");
 		lua_pushboolean(L, ev.instrument_sticky);
 		lua_setfield(L, -2, "sticky");
+		lua_pushboolean(L, ev.instrument_keep_aspect);
+		lua_setfield(L, -2, "keep_aspect");
+		if (ev.instrument_aspect_ratio_set) {
+			lua_pushnumber(L, static_cast<double>(ev.instrument_aspect_ratio));
+			lua_setfield(L, -2, "aspect_ratio");
+		}
 		push_string_array(L, ev.instrument_anchors);
 		lua_setfield(L, -2, "anchors");
 		lua_setfield(L, t, "instrument");

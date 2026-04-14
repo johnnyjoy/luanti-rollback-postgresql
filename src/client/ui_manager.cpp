@@ -6,7 +6,7 @@
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/Input.h>
-#include <RmlUi/Core/Elements/ElementFormControlInput.h>
+#include <RmlUi/Core/Elements/ElementFormControl.h>
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -489,6 +489,103 @@ static std::string anchor_to_token(UiAnchor a)
 	case UiAnchor::Right: return "right";
 	}
 	return "center";
+}
+
+/// Classify instrument position into a stable 9-way region using viewport thirds of the rect center.
+/// Deterministic: same rect + viewport → same labels (used for adaptation; not tied to anchor string).
+static void classify_placement_from_geometry(s32 abs_x, s32 abs_y, s32 w, s32 h, s32 vw, s32 vh,
+		std::string *out_region, std::string *out_kind)
+{
+	if (!out_region || !out_kind)
+		return;
+	if (w <= 0 || h <= 0 || vw <= 0 || vh <= 0) {
+		*out_region = "center";
+		*out_kind = "center";
+		return;
+	}
+
+	// Touch margins: large HUDs whose *center* sits in the middle third still "dock" visually to a
+	// viewport edge/corner — improves corner/edge adaptation (TEST_021 E/F).
+	const s32 cap = std::max(1, std::min(vw, vh) / 8);
+	const s32 m = std::min(24, std::max(8, cap));
+	const bool touch_l = abs_x <= m;
+	const bool touch_r = (abs_x + w) >= vw - m;
+	const bool touch_t = abs_y <= m;
+	const bool touch_b = (abs_y + h) >= vh - m;
+
+	const s32 cx = abs_x + w / 2;
+	const s32 cy = abs_y + h / 2;
+	const s32 t1x = vw / 3;
+	const s32 t2x = (vw * 2) / 3;
+	const s32 t1y = vh / 3;
+	const s32 t2y = (vh * 2) / 3;
+
+	int col = 1;
+	if (cx < t1x)
+		col = 0;
+	else if (cx < t2x)
+		col = 1;
+	else
+		col = 2;
+
+	int row = 1;
+	if (cy < t1y)
+		row = 0;
+	else if (cy < t2y)
+		row = 1;
+	else
+		row = 2;
+
+	static const char *const kRegions[3][3] = {
+			{"top-left", "top", "top-right"},
+			{"left", "center", "right"},
+			{"bottom-left", "bottom", "bottom-right"},
+	};
+	*out_region = kRegions[row][col];
+
+	const bool span_h = touch_l && touch_r;
+	const bool span_v = touch_t && touch_b;
+
+	// Edge-touch overrides are conservative: also require centroid column/row to match, so a wide
+	// HUD moved slightly left does not become "left" (TEST_021 D premature vertical).
+	if (touch_t && touch_l && !span_h)
+		*out_region = "top-left";
+	else if (touch_t && touch_r && !span_h)
+		*out_region = "top-right";
+	else if (touch_b && touch_l && !span_h)
+		*out_region = "bottom-left";
+	else if (touch_b && touch_r && !span_h)
+		*out_region = "bottom-right";
+	else if (touch_t && span_h)
+		*out_region = "top";
+	else if (touch_b && span_h)
+		*out_region = "bottom";
+	else if (touch_l && !touch_r && !span_h && col == 0)
+		*out_region = "left";
+	else if (touch_r && !touch_l && !span_h && col == 2)
+		*out_region = "right";
+
+	const std::string &r = *out_region;
+	if (r == "center")
+		*out_kind = "center";
+	else if (r == "top" || r == "bottom" || r == "left" || r == "right")
+		*out_kind = "edge";
+	else
+		*out_kind = "corner";
+}
+
+static void classify_placement_from_anchor_token(const std::string &anchor, std::string *out_region,
+		std::string *out_kind)
+{
+	if (!out_region || !out_kind)
+		return;
+	*out_region = anchor;
+	if (anchor == "center")
+		*out_kind = "center";
+	else if (anchor == "top" || anchor == "bottom" || anchor == "left" || anchor == "right")
+		*out_kind = "edge";
+	else
+		*out_kind = "corner";
 }
 
 static void apply_surface_positioning(UiManager::Impl *impl, SurfaceEntry &se, int vw, int vh)
@@ -1000,12 +1097,15 @@ void UiManager::processRmlUiInput(InputHandler *input)
 			ev.placement_anchor = anchor_to_token(se->positioning->anchor);
 		}
 
-		// Instrument contract (if any).
+		// Resizable HUD layout contract (shared by instruments and other HUD surfaces).
 		if (se && se->layout) {
 			ev.has_instrument = true;
 			ev.instrument_movable = se->layout->movable;
 			ev.instrument_resizable = se->layout->resizable;
 			ev.instrument_sticky = se->layout->sticky;
+			ev.instrument_keep_aspect = se->layout->keep_aspect;
+			ev.instrument_aspect_ratio_set = se->layout->aspect_ratio_set;
+			ev.instrument_aspect_ratio = se->layout->aspect_ratio;
 			for (UiAnchor a : se->layout->allowed_anchors)
 				ev.instrument_anchors.emplace_back(anchor_to_token(a));
 		}
@@ -1034,6 +1134,17 @@ void UiManager::processRmlUiInput(InputHandler *input)
 				ev.rect_w = static_cast<s32>(std::floor(sz.x + 0.5f));
 				ev.rect_h = static_cast<s32>(std::floor(sz.y + 0.5f));
 			}
+		}
+
+		// Nine-way region + kind: geometry when the measured rect is valid; else anchor tokens.
+		if (ev.rect_w > 0 && ev.rect_h > 0 && ev.viewport_w > 0 && ev.viewport_h > 0) {
+			classify_placement_from_geometry(ev.abs_x, ev.abs_y, ev.rect_w, ev.rect_h, ev.viewport_w,
+					ev.viewport_h, &ev.placement_region, &ev.placement_kind);
+		} else if (ev.has_placement) {
+			classify_placement_from_anchor_token(ev.placement_anchor, &ev.placement_region, &ev.placement_kind);
+		} else {
+			ev.placement_region.clear();
+			ev.placement_kind.clear();
 		}
 	};
 
@@ -1077,6 +1188,71 @@ void UiManager::processRmlUiInput(InputHandler *input)
 		if (h)
 			dir.push_back(h);
 		return dir;
+	};
+
+	// When no explicit drag-handle element is hit, allow dragging from non-interactive
+	// chrome inside the HUD content box (declarative buttons/slots and form controls still win).
+	auto implicit_instrument_drag_element = [&](SurfaceEntry &se, s32 mx, s32 my) -> Rml::Element * {
+		if (!se.document)
+			return nullptr;
+		// Per-document hit test: GetHoverElement() is global topmost across all stacked documents,
+		// so lower HUDs would never see a matching hover. Query this surface's document only.
+		const Rml::Vector2f mp(static_cast<float>(mx), static_cast<float>(my));
+		Rml::Element *hover = ctx->GetElementAtPoint(mp, nullptr, se.document);
+		if (!hover || hover->GetOwnerDocument() != se.document)
+			return nullptr;
+		Rml::Element *pos = se.document->GetElementById(Rml::String("exp_pos"));
+		if (!pos)
+			return nullptr;
+		bool under_exp_pos = false;
+		for (Rml::Element *x = hover; x; x = x->GetParentNode()) {
+			if (x == pos) {
+				under_exp_pos = true;
+				break;
+			}
+		}
+		if (!under_exp_pos)
+			return nullptr;
+		for (Rml::Element *x = hover; x; x = x->GetParentNode()) {
+			if (x->HasAttribute(Rml::String("data-luui-resize-handle")))
+				return nullptr;
+			if (dynamic_cast<Rml::ElementFormControl *>(x))
+				return nullptr;
+			const Rml::String &rid = x->GetId();
+			const std::string id(rid.c_str());
+			if (id.size() >= 10 && id.compare(0, 10, "luaui_btn_") == 0)
+				return nullptr;
+			if (id.size() >= 11 && id.compare(0, 11, "luaui_slot_") == 0)
+				return nullptr;
+			if (x == pos)
+				break;
+		}
+
+		Rml::Element *box_el = nullptr;
+		const int nch = pos->GetNumChildren();
+		for (int i = 0; i < nch; ++i) {
+			if (Rml::Element *ch = pos->GetChild(i)) {
+				box_el = ch;
+				break;
+			}
+		}
+		if (!box_el)
+			box_el = pos;
+		const Rml::Vector2f off = box_el->GetAbsoluteOffset(Rml::BoxArea::Border);
+		const Rml::Vector2f sz = box_el->GetBox().GetSize(Rml::BoxArea::Border);
+		const s32 rx = static_cast<s32>(std::floor(off.x + 0.5f));
+		const s32 ry = static_cast<s32>(std::floor(off.y + 0.5f));
+		const s32 rw = static_cast<s32>(std::floor(sz.x + 0.5f));
+		const s32 rh = static_cast<s32>(std::floor(sz.y + 0.5f));
+		if (rw <= 0 || rh <= 0)
+			return nullptr;
+		if (mx < rx || my < ry || mx >= rx + rw || my >= ry + rh)
+			return nullptr;
+		if (se.layout && se.layout->resizable) {
+			if (!infer_resize_dir(rx, ry, rw, rh, mx, my, 10).empty())
+				return nullptr;
+		}
+		return pos;
 	};
 
 	// Instrument mode: Lua decides drag/resize behavior; C++ only forwards events.
@@ -1321,6 +1497,8 @@ void UiManager::processRmlUiInput(InputHandler *input)
 					drag_hits.push_back(legacy);
 
 				Rml::Element *drag_handle = choose_smallest_hit(drag_hits);
+				if (!drag_handle)
+					drag_handle = implicit_instrument_drag_element(se, mpos_clamped.X, mpos_clamped.Y);
 				if (!drag_handle)
 					continue;
 				const Rml::String eid = drag_handle->GetId();
@@ -1796,9 +1974,9 @@ void UiManager::enterInstrumentMode()
 				"body{pointer-events:none;margin:0;padding:0;background-color:transparent;}"
 				"#lm{pointer-events:none;position:absolute;left:12px;top:12px;display:inline-block;"
 				"background-color:rgba(20,24,32,220);"
-				"border:1px solid rgba(90,110,140,200);"
+				"border-width:1px;border-style:solid;border-color:#5a6e8c;"
 				"border-radius:6px;padding:8px 10px;"
-				"font-size:13px;line-height:16px;color:#eaf2fb;}"
+				"font-family:Arimo;font-size:13px;line-height:16px;color:#eaf2fb;}"
 				"</style></head>\n"
 				"<body><div id=\"lm\">Instrument Mode — drag HUD; ESC exits</div></body>\n"
 				"</rml>";

@@ -173,6 +173,17 @@ static bool apply_declarative_tree(
 				layout_spec.sticky = lua_toboolean(L, -1);
 			lua_pop(L, 1);
 
+			lua_getfield(L, lo, "keep_aspect");
+			if (lua_isboolean(L, -1))
+				layout_spec.keep_aspect = lua_toboolean(L, -1);
+			lua_pop(L, 1);
+			lua_getfield(L, lo, "aspect_ratio");
+			if (lua_isnumber(L, -1)) {
+				layout_spec.aspect_ratio = static_cast<float>(lua_tonumber(L, -1));
+				layout_spec.aspect_ratio_set = true;
+			}
+			lua_pop(L, 1);
+
 			lua_getfield(L, lo, "drag_handle");
 			if (lua_type(L, -1) == LUA_TSTRING)
 				layout_spec.drag_handle_id = lua_tostring(L, -1);

@@ -533,9 +533,36 @@ bool Game::startup(volatile std::sig_atomic_t *kill,
 
 				if (ev.has_placement) {
 					root["placement"]["anchor"] = ev.placement_anchor;
+					if (!ev.placement_region.empty())
+						root["placement"]["region"] = ev.placement_region;
+					else
+						root["placement"]["region"] = ev.placement_anchor;
+					if (!ev.placement_kind.empty())
+						root["placement"]["kind"] = ev.placement_kind;
 					root["placement"]["x"] = ev.placement_x;
 					root["placement"]["y"] = ev.placement_y;
 					root["placement"]["keep_in_view"] = ev.placement_keep_in_view;
+				} else if (!ev.placement_region.empty() || !ev.placement_kind.empty()) {
+					// Geometric classification without a positioning record (unusual; keeps region/kind available).
+					if (!ev.placement_region.empty())
+						root["placement"]["region"] = ev.placement_region;
+					if (!ev.placement_kind.empty())
+						root["placement"]["kind"] = ev.placement_kind;
+				}
+
+				if (ev.has_instrument) {
+					Json::Value inst(Json::objectValue);
+					inst["movable"] = ev.instrument_movable;
+					inst["resizable"] = ev.instrument_resizable;
+					inst["sticky"] = ev.instrument_sticky;
+					inst["keep_aspect"] = ev.instrument_keep_aspect;
+					if (ev.instrument_aspect_ratio_set)
+						inst["aspect_ratio"] = ev.instrument_aspect_ratio;
+					Json::Value an(Json::arrayValue);
+					for (const auto &a : ev.instrument_anchors)
+						an.append(a);
+					inst["anchors"] = an;
+					root["instrument"] = inst;
 				}
 
 				Json::Value ids(Json::arrayValue);

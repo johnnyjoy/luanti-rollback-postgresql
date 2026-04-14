@@ -517,6 +517,7 @@ local function help_text()
 		"/testui 018       run TEST_018 (minimal shadow modal)",
 		"/testui 019       run TEST_019 (minimal positioning: anchors + keep_in_view + resize)",
 		"/testui 020       run TEST_020 (HUD instrument mode: drag + sticky anchors)",
+		"/testui 021       run TEST_021 (HUD aspect resize + placement adaptation D–F)",
 		"/testui instrument  toggle HUD instrument mode (client-only)",
 		"/testui foundation  toggle single demo panel (normal panel)",
 		"/testui placement  anchor/bar/center lab",
@@ -546,9 +547,11 @@ local function run_numbered_test(which, playername)
 		path = core.get_modpath("testui") .. "/tests/test_019_minimal_positioning_anchors.lua"
 	elseif which == "020" then
 		path = core.get_modpath("testui") .. "/tests/test_020_hud_instrument_drag_sticky.lua"
+	elseif which == "021" then
+		path = core.get_modpath("testui") .. "/tests/test_021_aspect_resize.lua"
 	end
 	if not path then
-		return false, "Unknown test number. Use: 016, 017, 018, 019, or 020."
+		return false, "Unknown test number. Use: 016, 017, 018, 019, 020, or 021."
 	end
 	local t = dofile(path)
 	if not (t and t.run) then
@@ -561,7 +564,7 @@ local function run_numbered_test(which, playername)
 end
 
 core.register_chatcommand("testui", {
-	params = "[016|017|018|019|020|help|examples|instrument|foundation|placement|minimal|launcher|counter|buttons|multi|modal|toast|lifecycle|all|close|btn1|btn2]",
+	params = "[016|017|018|019|020|021|help|examples|instrument|foundation|placement|minimal|launcher|counter|buttons|multi|modal|toast|lifecycle|all|close|btn1|btn2]",
 	description = "RmlUi UI test launcher (/testui help)",
 	func = function(name, param)
 		local s = ensure_session(name)
