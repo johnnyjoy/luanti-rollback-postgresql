@@ -19,6 +19,7 @@
 #include "exceptions.h"
 #include "remoteplayer.h"
 #include "server/player_sao.h"
+#include "threading/mutex_auto_lock.h"
 #include <cstdlib>
 
 Database_PostgreSQL::Database_PostgreSQL(const std::string &connect_string,
@@ -44,11 +45,16 @@ Database_PostgreSQL::Database_PostgreSQL(const std::string &connect_string,
 
 Database_PostgreSQL::~Database_PostgreSQL()
 {
+	if (!m_conn)
+		return;
+	RecursiveMutexAutoLock lk(m_conn_mutex);
 	PQfinish(m_conn);
+	m_conn = nullptr;
 }
 
 void Database_PostgreSQL::connectToDatabase()
 {
+	RecursiveMutexAutoLock lk(m_conn_mutex);
 	m_conn = PQconnectdb(m_connect_string.c_str());
 
 	if (PQstatus(m_conn) != CONNECTION_OK) {
@@ -78,6 +84,7 @@ void Database_PostgreSQL::connectToDatabase()
 
 void Database_PostgreSQL::verifyDatabase()
 {
+	RecursiveMutexAutoLock lk(m_conn_mutex);
 	if (PQstatus(m_conn) == CONNECTION_OK)
 		return;
 
@@ -87,6 +94,7 @@ void Database_PostgreSQL::verifyDatabase()
 
 void Database_PostgreSQL::ping()
 {
+	RecursiveMutexAutoLock lk(m_conn_mutex);
 	if (PQping(m_connect_string.c_str()) != PQPING_OK) {
 		throw DatabaseException(std::string(
 			"PostgreSQL database error: ") +
@@ -96,6 +104,7 @@ void Database_PostgreSQL::ping()
 
 bool Database_PostgreSQL::initialized() const
 {
+	RecursiveMutexAutoLock lk(m_conn_mutex);
 	return m_conn && PQstatus(m_conn) == CONNECTION_OK;
 }
 
@@ -120,9 +129,34 @@ PGresult *Database_PostgreSQL::checkResults(PGresult *result, bool clear)
 	return result;
 }
 
+PGresult *Database_PostgreSQL::execPrepared(const char *stmtName, const int paramsNumber,
+	const void **params,
+	const int *paramsLengths, const int *paramsFormats,
+	bool clear, bool nobinary)
+{
+	RecursiveMutexAutoLock lk(m_conn_mutex);
+	return checkResults(PQexecPrepared(m_conn, stmtName, paramsNumber,
+		(const char *const *) params, paramsLengths, paramsFormats,
+		nobinary ? 1 : 0), clear);
+}
+
+PGresult *Database_PostgreSQL::execPrepared(const char *stmtName, const int paramsNumber,
+	const char **params, bool clear, bool nobinary)
+{
+	return execPrepared(stmtName, paramsNumber,
+		(const void **) params, NULL, NULL, clear, nobinary);
+}
+
+void Database_PostgreSQL::prepareStatement(const std::string &name, const std::string &sql)
+{
+	RecursiveMutexAutoLock lk(m_conn_mutex);
+	checkResults(PQprepare(m_conn, name.c_str(), sql.c_str(), 0, NULL));
+}
+
 void Database_PostgreSQL::createTableIfNotExists(const std::string &table_name,
 		const std::string &definition)
 {
+	RecursiveMutexAutoLock lk(m_conn_mutex);
 	std::string sql_check_table = "SELECT relname FROM pg_class WHERE relname='" +
 		table_name + "';";
 	PGresult *result = checkResults(PQexec(m_conn, sql_check_table.c_str()), false);
@@ -137,17 +171,20 @@ void Database_PostgreSQL::createTableIfNotExists(const std::string &table_name,
 
 void Database_PostgreSQL::beginSave()
 {
+	RecursiveMutexAutoLock lk(m_conn_mutex);
 	verifyDatabase();
 	checkResults(PQexec(m_conn, "BEGIN;"));
 }
 
 void Database_PostgreSQL::endSave()
 {
+	RecursiveMutexAutoLock lk(m_conn_mutex);
 	checkResults(PQexec(m_conn, "COMMIT;"));
 }
 
 void Database_PostgreSQL::rollback()
 {
+	RecursiveMutexAutoLock lk(m_conn_mutex);
 	checkResults(PQexec(m_conn, "ROLLBACK;"));
 }
 

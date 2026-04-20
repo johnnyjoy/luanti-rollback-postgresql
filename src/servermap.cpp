@@ -42,6 +42,19 @@
 	Helpers
 */
 
+namespace {
+
+std::string buildMapBlockSaveBlob(MapBlock *block, int compression_level)
+{
+	u8 version = SER_FMT_VER_HIGHEST_WRITE;
+	std::ostringstream o(std::ios_base::binary);
+	o.write((char *) &version, 1);
+	block->serialize(o, version, true, compression_level);
+	return o.str();
+}
+
+} // namespace
+
 void MapDatabaseAccessor::loadBlock(v3s16 blockpos, std::string &ret)
 {
 	ret.clear();
@@ -688,29 +701,26 @@ void ServerMap::endSave()
 
 bool ServerMap::saveBlock(MapBlock *block)
 {
-	// FIXME: serialization happens under mutex
+	std::string blob = buildMapBlockSaveBlob(block, m_map_compression_level);
+
 	MutexAutoLock glock(m_db.global_mutex);
 	MutexAutoLock slock(m_db.stripeMutex(block->getPos()));
-	return saveBlock(block, m_db.dbase, m_map_compression_level);
+
+	v3s16 p3d = block->getPos();
+	// FIXME: zero copy possible in c++20 or with custom rdbuf (blob passed to backend)
+	bool ret = m_db.dbase->saveBlock(p3d, blob);
+	if (ret)
+		block->resetModified();
+	return ret;
 }
 
 bool ServerMap::saveBlock(MapBlock *block, MapDatabase *db, int compression_level)
 {
 	v3s16 p3d = block->getPos();
-
-	// Format used for writing
-	u8 version = SER_FMT_VER_HIGHEST_WRITE;
-
-	/*
-		[0] u8 serialization version
-		[1] data
-	*/
-	std::ostringstream o(std::ios_base::binary);
-	o.write((char*) &version, 1);
-	block->serialize(o, version, true, compression_level);
+	std::string blob = buildMapBlockSaveBlob(block, compression_level);
 
 	// FIXME: zero copy possible in c++20 or with custom rdbuf
-	bool ret = db->saveBlock(p3d, o.str());
+	bool ret = db->saveBlock(p3d, blob);
 	if (ret) {
 		// We just wrote it to the disk so clear modified flag
 		block->resetModified();

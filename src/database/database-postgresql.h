@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <mutex>
 #include <string>
 #include <libpq-fe.h>
 #include "database.h"
@@ -54,22 +55,13 @@ protected:
 		return std::string(PQgetvalue(res, row, col), PQgetlength(res, row, col));
 	}
 
-	inline PGresult *execPrepared(const char *stmtName, const int paramsNumber,
+	PGresult *execPrepared(const char *stmtName, const int paramsNumber,
 		const void **params,
 		const int *paramsLengths = NULL, const int *paramsFormats = NULL,
-		bool clear = true, bool nobinary = true)
-	{
-		return checkResults(PQexecPrepared(m_conn, stmtName, paramsNumber,
-			(const char* const*) params, paramsLengths, paramsFormats,
-			nobinary ? 1 : 0), clear);
-	}
+		bool clear = true, bool nobinary = true);
 
-	inline PGresult *execPrepared(const char *stmtName, const int paramsNumber,
-		const char **params, bool clear = true, bool nobinary = true)
-	{
-		return execPrepared(stmtName, paramsNumber,
-			(const void **)params, NULL, NULL, clear, nobinary);
-	}
+	PGresult *execPrepared(const char *stmtName, const int paramsNumber,
+		const char **params, bool clear = true, bool nobinary = true);
 
 	void createTableIfNotExists(const std::string &table_name, const std::string &definition);
 
@@ -77,10 +69,7 @@ protected:
 	void connectToDatabase();
 	virtual void createDatabase() = 0;
 	virtual void initStatements() = 0;
-	inline void prepareStatement(const std::string &name, const std::string &sql)
-	{
-		checkResults(PQprepare(m_conn, name.c_str(), sql.c_str(), 0, NULL));
-	}
+	void prepareStatement(const std::string &name, const std::string &sql);
 
 	int getPGVersion() const { return m_pgversion; }
 
@@ -95,6 +84,9 @@ private:
 	std::string m_connect_string;
 	PGconn *m_conn = nullptr;
 	int m_pgversion = 0;
+
+	/// libpq does not permit concurrent use of one PGconn from multiple threads.
+	mutable std::recursive_mutex m_conn_mutex;
 };
 
 // Not sure why why we have to do this. can't C++ figure it out on its own?
