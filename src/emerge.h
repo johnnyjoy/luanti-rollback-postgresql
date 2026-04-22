@@ -4,8 +4,11 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <queue>
 #include "network/networkprotocol.h"
 #include "irr_v3d.h"
 #include "util/metricsbackend.h"
@@ -79,6 +82,39 @@ struct BlockEmergeData {
 	u16 peer_requested;
 	u16 flags;
 	EmergeCallbackList callbacks;
+};
+
+/// @brief Work deferred from an EmergeThread; applied on the server thread
+/// under EnvAutoLock.
+struct EmergeApplyItem {
+	enum Kind : u8 {
+		APPLY_GENERATED,
+		FROM_DISK_SECOND_PASS,
+	};
+
+	Kind kind = APPLY_GENERATED;
+	v3s16 pos{0, 0, 0};
+	bool allow_gen = false;
+	EmergeThread *thread = nullptr;
+
+	// APPLY_GENERATED payload
+	u64 blockseed = 0;
+	std::unique_ptr<BlockMakeData> bm;
+
+	// FROM_DISK_SECOND_PASS payload
+	std::string from_db;
+};
+
+class MapBlock;
+
+/// @brief First pass of getBlockOrStartGen, prepared on the server thread.
+struct EmergePreparedFirstPass {
+	EmergeAction action = EMERGE_CANCELLED;
+	MapBlock *block = nullptr;
+	std::unique_ptr<BlockMakeData> gen_bm;
+	/// Stale prep inbox entry: emerge already popped m_blocks_enqueued; run
+	/// getBlockOrStartGen on the emerge thread.
+	bool fallthrough_to_emerge_envlock = false;
 };
 
 class EmergeParams {
@@ -191,6 +227,45 @@ public:
 	/// @return min edge of chunk in block units
 	static v3s16 getContainingChunk(v3s16 blockpos, v3s16 chunksize);
 
+	/**
+	 * Drain the server emerge work queue (generated apply + disk second pass).
+	 * Must be called from the server main thread (e.g. from Server::AsyncRunStep).
+	 */
+	void processEmergeAppliesOnServerThread(Server *server);
+
+	/**
+	 * After makeChunk and emerge on_generated, transfer BlockMakeData to
+	 * the apply queue, wait for the server to finish finishBlockMake +
+	 * environment_OnGenerated + dispatch, then the caller runs mapgen
+	 * post-apply cleanup.
+	 * @return false on shutdown; caller must cancel the block make.
+	 */
+	bool queueGeneratedForServerApply(
+			EmergeThread *eth, v3s16 pos, u64 blockseed, BlockMakeData *stack_bm);
+
+	/**
+	 * Run the second getBlockOrStartGen pass (after DB blob load) on the server
+	 * thread under EnvAutoLock; publish action/block/bmdata back to @a eth.
+	 * @return false on shutdown; caller should cancel this emerge item.
+	 */
+	bool queueFromDiskSecondPassForServer(
+			EmergeThread *eth, v3s16 pos, bool allow_gen, std::string *from_db);
+
+	/**
+	 * Under EnvAutoLock, run the same map peek / init as the first
+	 * getBlockOrStartGen call; store per @a pos for @ref tryWaitTakePreparedFirstPass.
+	 * Call from the server main thread (e.g. before @ref processEmergeAppliesOnServerThread).
+	 */
+	void serverPrepareEmergeFirstPass(Server *server);
+
+	/**
+	 * Block until the server publishes @ref EmergePreparedFirstPass for @a pos
+	 * (including fallthrough sentinel rows when emerge already popped the enqueue
+	 * slot), or return false on shutdown / circuit breaker timeout (caller uses
+	 * @ref getBlockOrStartGen on the emerge thread).
+	 */
+	bool tryWaitTakePreparedFirstPass(v3s16 pos, EmergePreparedFirstPass *out);
+
 private:
 	void initThreads(bool should_multithread);
 
@@ -236,6 +311,29 @@ private:
 	bool popBlockEmergeData(v3s16 pos, BlockEmergeData *bedata);
 
 	void reportCompletedEmerge(EmergeAction action);
+
+	void runServerApplyItem(Server *server, EmergeApplyItem &&item);
+
+	// Server-thread work from emerge threads: (1) generated-chunk apply —
+	// finishBlockMake + environment_OnGenerated + dispatch; (2) FROM_DISK second
+	// pass — emerge_map_get_block_or_start_gen with blob. One bounded queue so
+	// apply and disk second pass share the same backpressure limit.
+	// Profiler: "Server: emerge apply:" vs "Server: emerge disk:" — same drain, EmergeApplyItem::Kind.
+	std::mutex m_apply_mutex;
+	std::condition_variable m_apply_space_cv;
+	std::queue<EmergeApplyItem> m_server_emerge_work_queue;
+	u32 m_apply_queue_limit = 0;
+	bool m_apply_stopping = false;
+
+	/// Max rows in m_prepared_first (set in initThreads from qlimits + thread count).
+	u32 m_prep_inflight_limit = 0;
+
+	// Server-thread first pass of getBlockOrStartGen (map peek / initBlockMake)
+	std::mutex m_prep_mutex;
+	std::condition_variable m_prep_cv;
+	bool m_prep_stopping = false;
+	std::queue<v3s16> m_server_prep_inbox;
+	std::map<v3s16, EmergePreparedFirstPass> m_prepared_first;
 
 	friend class EmergeThread;
 };

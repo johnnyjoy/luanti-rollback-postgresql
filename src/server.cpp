@@ -675,6 +675,13 @@ void Server::AsyncRunStep(float dtime, bool initial_step)
 		return;
 	}
 
+	// Emerge: server-thread first pass of getBlockOrStartGen before apply work
+	if (m_emerge)
+		m_emerge->serverPrepareEmergeFirstPass(this);
+	// Emerge: apply generated map chunks (finishBlockMake, server on_generated, dispatch)
+	if (m_emerge)
+		m_emerge->processEmergeAppliesOnServerThread(this);
+
 	{
 		// Send blocks to clients
 		SendBlocks(dtime);
@@ -1204,6 +1211,10 @@ void Server::yieldToOtherThreads(float dtime)
 	 *
 	 * In the future the emerge code should be reworked to exclusively use a result
 	 * queue, thereby avoiding this problem (and terrible workaround).
+	 *
+	 * Even with server-side finishing and server-prepared first pass work, emerge
+	 * still takes envlock for disk load / second-pass paths and Lua completion
+	 * callbacks may take envlock; keep measuring before weakening this workaround.
 	 */
 
 	// don't activate workaround too quickly

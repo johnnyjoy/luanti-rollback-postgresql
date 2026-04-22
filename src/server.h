@@ -490,6 +490,7 @@ protected:
 
 private:
 	friend class EmergeThread;
+	friend class EmergeManager;
 	friend class RemoteClient;
 
 	// unittest classes

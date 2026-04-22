@@ -23,6 +23,7 @@ class EmergeManager;
 class EmergeScripting;
 
 class EmergeThread : public Thread {
+	friend class EmergeManager;
 public:
 	bool enable_mapgen_debug_info;
 	const int id; // Index of this thread
@@ -57,6 +58,16 @@ private:
 	// read from scripting:
 	UniqueQueue<v3s16> *m_trans_liquid; //< non-null only when generating a mapblock
 
+	/// Woken by EmergeManager after server-side work on this thread's queue item
+	/// (generated apply or FROM_DISK second pass).
+	Event m_apply_done;
+	/// Action from the last server-side apply/second-pass handoff.
+	EmergeAction m_apply_result_action = EMERGE_CANCELLED;
+	/// Center block for the last apply (read by this thread after m_apply_done)
+	MapBlock *m_apply_result_block = nullptr;
+	/// Optional BlockMakeData from server-side second-pass result.
+	std::unique_ptr<BlockMakeData> m_apply_result_bm;
+
 	Event m_queue_event;
 	std::queue<v3s16> m_block_queue;
 
@@ -75,13 +86,13 @@ private:
 	 * @param data info for mapgen
 	 * @return what to do for this block
 	 */
+	/// @note Caller must hold @ref Server::EnvAutoLock. Shared logic with
+	/// @ref EmergeManager::serverPrepareEmergeFirstPass (server thread).
+	EmergeAction getBlockOrStartGenImpl(v3s16 pos, bool allow_gen,
+		const std::string *from_db, MapBlock **block, BlockMakeData *data);
 	EmergeAction getBlockOrStartGen(v3s16 pos, bool allow_gen,
-		const std::string *from_db,  MapBlock **block, BlockMakeData *data);
+		const std::string *from_db, MapBlock **block, BlockMakeData *data);
 
-	MapBlock *finishGen(v3s16 pos, BlockMakeData *bmdata,
-		std::map<v3s16, MapBlock *> *modified_blocks);
-
-	friend class EmergeManager;
 	friend class EmergeScripting;
 	friend class ModApiMapgen;
 };
