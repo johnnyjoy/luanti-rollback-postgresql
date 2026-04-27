@@ -265,6 +265,8 @@ bool ServerMap::initBlockMake(v3s16 blockpos, BlockMakeData *data)
 	*/
 
 	data->vmanip = new MMVManip(this);
+	// Keep mapgen-local block creation authoritative here and skip disk fallback
+	// in initialEmerge() for this path.
 	data->vmanip->initialEmerge(full_bpmin, full_bpmax, false);
 
 	// Data is ready now.

@@ -16,6 +16,8 @@
 #include "util/string.h"
 
 #include <libmemcached/memcached.h>
+#include <cerrno>
+#include <climits>
 #include <cstdlib>
 #include <string_view>
 
@@ -47,7 +49,15 @@ static memcached_st *create_memcached_handle(const std::string &connection_strin
 			continue;
 		}
 		const std::string host = std::string(trim(std::string_view(s.data(), colon)));
-		const int port = atoi(s.c_str() + colon + 1);
+		int port = -1;
+		const std::string port_str = s.substr(colon + 1);
+		char *endptr = nullptr;
+		errno = 0;
+		long parsed = std::strtol(port_str.c_str(), &endptr, 10);
+		if (errno == 0 && endptr && *endptr == '\0' &&
+				parsed >= 1 && parsed <= 65535 && parsed <= INT_MAX) {
+			port = static_cast<int>(parsed);
+		}
 		if (port <= 0 || port > 65535) {
 			warningstream << "MapDatabaseMemcachedCache: invalid port in \""
 				      << s << "\", skipping." << std::endl;

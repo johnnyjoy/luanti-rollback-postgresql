@@ -37,6 +37,7 @@ private:
 	void logMemcachedError(const char *what, memcached_return_t err);
 
 	std::unique_ptr<MapDatabase> m_inner;
+	// Access is serialized by ServerMap::m_db.mutex around MapDatabase calls.
 	memcached_st *m_memc;
 	std::string m_key_prefix;
 };
