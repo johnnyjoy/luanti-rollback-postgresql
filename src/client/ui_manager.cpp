@@ -1971,14 +1971,17 @@ void UiManager::enterInstrumentMode()
 		static const char *kRml =
 				"<rml>\n"
 				"<head><style>"
-				"body{pointer-events:none;margin:0;padding:0;background-color:transparent;}"
-				"#lm{pointer-events:none;position:absolute;left:12px;top:12px;display:inline-block;"
+				"body{pointer-events:none;margin:0;padding:0;background-color:transparent;width:100%;"
+				"height:100%;min-width:1px;min-height:1px;}"
+				"#lm{pointer-events:none;box-sizing:border-box;position:absolute;left:12px;top:12px;"
+				"display:block;width:auto;max-width:420px;"
 				"background-color:rgba(20,24,32,220);"
-				"border-width:1px;border-style:solid;border-color:#5a6e8c;"
+				"border:1px #5a6e8c;"
 				"border-radius:6px;padding:8px 10px;"
-				"font-family:Arimo;font-size:13px;line-height:16px;color:#eaf2fb;}"
+				"white-space:normal;font-family:Arimo;font-size:13px;line-height:1.35;"
+				"color:#eaf2fb;}"
 				"</style></head>\n"
-				"<body><div id=\"lm\">Instrument Mode — drag HUD; ESC exits</div></body>\n"
+				"<body><div id=\"lm\">Instrument mode — drag HUD; ESC exits</div></body>\n"
 				"</rml>";
 		std::string em;
 		(void)mount("instrument_mode_overlay", UiLayer::OVERLAY, 1000, kRml,

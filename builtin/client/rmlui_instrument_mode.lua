@@ -25,7 +25,8 @@ if not core.ui.hud_placement_set or not core.ui.hud_placement_get then
 end
 
 local DRAG_HANDLE_ID = "instrument_drag"
-local SNAP_THRESH_PX = 24
+local SNAP_STICK_PX = 24
+local SNAP_UNSTICK_PX = 36
 
 local drag = nil -- { sid=string, start_abs={x,y}, start_mouse={x,y} }
 
@@ -44,6 +45,14 @@ end
 local function anchor_base(anchor, vw, vh, w, h)
 	if anchor == "center" then
 		return math.floor((vw - w) / 2 + 0.5), math.floor((vh - h) / 2 + 0.5)
+	elseif anchor == "top" then
+		return math.floor((vw - w) / 2 + 0.5), 0
+	elseif anchor == "bottom" then
+		return math.floor((vw - w) / 2 + 0.5), vh - h
+	elseif anchor == "left" then
+		return 0, math.floor((vh - h) / 2 + 0.5)
+	elseif anchor == "right" then
+		return vw - w, math.floor((vh - h) / 2 + 0.5)
 	elseif anchor == "top-left" then
 		return 0, 0
 	elseif anchor == "top-right" then
@@ -86,13 +95,21 @@ local function snap_anchor(ev)
 		return nil
 	end
 
+	local current_anchor = type(ev.placement) == "table" and ev.placement.anchor or nil
 	local best, best_score = nil, nil
-	for _, a in ipairs({ "center", "top-left", "top-right", "bottom-left", "bottom-right" }) do
+	for _, a in ipairs({
+		"center",
+		"top-left", "top", "top-right",
+		"left", "right",
+		"bottom-left", "bottom", "bottom-right",
+	}) do
 		if allowed_anchor(ev.instrument, a) then
 			local bx, by = anchor_base(a, vw, vh, w, h)
 			local dx = ax - bx
 			local dy = ay - by
-			if math.abs(dx) <= SNAP_THRESH_PX and math.abs(dy) <= SNAP_THRESH_PX then
+			-- Small hysteresis: require a larger movement to "unstick" from the current anchor.
+			local thresh = (a == current_anchor) and SNAP_UNSTICK_PX or SNAP_STICK_PX
+			if math.abs(dx) <= thresh and math.abs(dy) <= thresh then
 				local score = dx * dx + dy * dy
 				if not best_score or score < best_score then
 					best_score = score

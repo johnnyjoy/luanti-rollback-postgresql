@@ -466,7 +466,7 @@ local function start_for_player(player)
 		local adapt_d_cfg = {
 			adaptive = {
 				enabled = true,
-				orientation = { mode = "auto", map = orient_mixed },
+				orientation = { mode = "auto", map = orient_mixed, require_edge_for_side = true },
 				variant = {},
 				geometry = geom_hotbar,
 			},
@@ -484,7 +484,7 @@ local function start_for_player(player)
 		local adapt_f_cfg = {
 			adaptive = {
 				enabled = true,
-				orientation = { mode = "auto", map = orient_mixed },
+				orientation = { mode = "auto", map = orient_mixed, require_edge_for_side = true },
 				variant = {},
 				geometry = geom_hotbar,
 			},
