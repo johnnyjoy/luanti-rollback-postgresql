@@ -102,8 +102,6 @@ function core.rmlui_adapt_instrument(ctx, root_element_id, config)
 		orientation = ori_block.fixed or "horizontal"
 	else
 		orientation = ori_map[region] or default_orientation_map[region] or "horizontal"
-		-- Optional strictness: only treat side columns as vertical when the placement kind
-		-- says we are truly on an edge (prevents premature flips while still in interior).
 		if require_edge_for_side and (region == "left" or region == "right") and pl.kind ~= "edge" then
 			orientation = ori_map.center or default_orientation_map.center or "horizontal"
 		end
@@ -113,15 +111,26 @@ function core.rmlui_adapt_instrument(ctx, root_element_id, config)
 	end
 
 	local var_block = adaptive.variant or {}
-	-- Allow variant.base_style without overriding variant.styles (maps stay default unless set).
 	local var_map = var_block.map or default_variant_map
-	local variant = var_map[region] or default_variant_map[region] or "center"
+	local variant_region = pl.variant_region or region
+	local variant = var_map[variant_region] or default_variant_map[variant_region] or "center"
 	local prevent_overflow = adaptive.prevent_overflow ~= false
 
 	local flex_dir = orientation == "horizontal" and "row" or "column"
 
 	local geom = adaptive.geometry
 	local g_for = orientation == "horizontal" and geom and geom.horizontal or geom and geom.vertical
+
+	-- Style patches merge per-property; reset bar flex props when switching horizontal/vertical.
+	local bar_layout_reset = {
+		width = "100%",
+		flex = "0",
+		["min-width"] = "0",
+		["min-height"] = "0",
+		["flex-wrap"] = "nowrap",
+		["max-width"] = "none",
+		["align-content"] = "stretch",
+	}
 
 	local styles = {}
 	local function merge_props(id, props)
@@ -168,12 +177,16 @@ function core.rmlui_adapt_instrument(ctx, root_element_id, config)
 		merge_props(root_element_id, root_props)
 	end
 
-	-- Swap outer dimensions when orientation changes (TEST_021 D/F); keeps bar layout readable.
 	if type(g_for) == "table" then
 		if type(g_for.root) == "table" then
 			merge_props(root_element_id, g_for.root)
 		end
 		if type(elems) == "table" and type(g_for.elements) == "table" then
+			for _, eid in pairs(elems) do
+				if type(eid) == "string" and eid ~= "" then
+					merge_props(eid, bar_layout_reset)
+				end
+			end
 			for key, eid in pairs(elems) do
 				local gp = g_for.elements[key]
 				if type(eid) == "string" and eid ~= "" and type(gp) == "table" then
@@ -183,22 +196,23 @@ function core.rmlui_adapt_instrument(ctx, root_element_id, config)
 		end
 	end
 
-	-- Full per-side reset so edge/corner/center transitions always re-paint (021-E re-trigger).
-	local base = var_block.base_style
-	if type(base) ~= "table" then
-		base = {
-			["border-left"] = "2px #6ac",
-			["border-right"] = "2px #6ac",
-			["border-top"] = "2px #6ac",
-			["border-bottom"] = "2px #6ac",
-		}
-	end
-	merge_props(root_element_id, base)
+	if var_block.enabled ~= false then
+		local base = var_block.base_style
+		if type(base) ~= "table" then
+			base = {
+				["border-left"] = "2px #6ac",
+				["border-right"] = "2px #6ac",
+				["border-top"] = "2px #6ac",
+				["border-bottom"] = "2px #6ac",
+			}
+		end
+		merge_props(root_element_id, base)
 
-	local vstyles = var_block.styles or default_variant_styles
-	local vs = vstyles[variant]
-	if type(vs) == "table" then
-		merge_props(root_element_id, vs)
+		local vstyles = var_block.styles or default_variant_styles
+		local vs = vstyles[variant]
+		if type(vs) == "table" then
+			merge_props(root_element_id, vs)
+		end
 	end
 
 	return {
@@ -208,6 +222,7 @@ function core.rmlui_adapt_instrument(ctx, root_element_id, config)
 			variant = variant,
 			region = region,
 			kind = pl.kind,
+			variant_region = variant_region,
 		},
 	}
 end

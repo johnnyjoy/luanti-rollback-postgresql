@@ -37,6 +37,11 @@ struct SurfaceEntry {
 	UiDismissPolicy dismiss_policy = UiDismissPolicy::None;
 	std::optional<UiSurfacePositioning> positioning;
 	std::optional<UiSurfaceLayout> layout;
+	/// Last applied absolute position (for sticky HUDs when the viewport resizes).
+	s32 last_viewport_w = 0;
+	s32 last_viewport_h = 0;
+	s32 last_applied_left = -1;
+	s32 last_applied_top = -1;
 	Rml::ElementDocument *document = nullptr;
 	struct FocusIsolationBackup {
 		bool had_focus = false;
@@ -644,6 +649,16 @@ static void apply_surface_positioning(UiManager::Impl *impl, SurfaceEntry &se, i
 	int x = base_x + static_cast<int>(p.x);
 	int y = base_y + static_cast<int>(p.y);
 
+	const bool viewport_changed = se.last_viewport_w > 0 && se.last_viewport_h > 0 &&
+			(se.last_viewport_w != vw || se.last_viewport_h != vh);
+	if (viewport_changed && se.layout && se.layout->sticky && se.last_applied_left >= 0 &&
+			se.last_applied_top >= 0) {
+		// Keep the HUD visually anchored while the window resizes instead of re-deriving
+		// from anchor+offset (which jumps when the box size changes).
+		x = se.last_applied_left;
+		y = se.last_applied_top;
+	}
+
 	if (p.keep_in_view) {
 		const int max_x = std::max(0, vw - w);
 		const int max_y = std::max(0, vh - h);
@@ -654,6 +669,11 @@ static void apply_surface_positioning(UiManager::Impl *impl, SurfaceEntry &se, i
 	pos->SetProperty(Rml::String("position"), Rml::String("fixed"));
 	pos->SetProperty(Rml::String("left"), Rml::String(std::to_string(x) + "px"));
 	pos->SetProperty(Rml::String("top"), Rml::String(std::to_string(y) + "px"));
+
+	se.last_applied_left = x;
+	se.last_applied_top = y;
+	se.last_viewport_w = vw;
+	se.last_viewport_h = vh;
 }
 
 bool mount_surface_impl(UiManager::Impl *impl, const UiMountSurfaceDesc &desc,

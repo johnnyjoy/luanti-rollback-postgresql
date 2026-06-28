@@ -10,7 +10,7 @@
 	- C: keep_aspect off (free resize + anchor-aware edges), top-right anchor
 	- D: adaptive “hotbar” — edge horizontal / vertical bar; `core.rmlui_adapt_instrument` on drag/resize end
 	- E: corner variant accents (borders) when region kind is corner
-	- F: same orientation policy as D + variant accents; corner snake layout not implemented
+	- F: same adapt policy as D (second hotbar instance)
 ]]
 
 local ui = core.ui
@@ -195,6 +195,50 @@ local function snap_anchor(abs_x, abs_y, w, h, vw, vh, allowed)
 	if not best then
 		return nil
 	end
+
+	-- Prefer edge anchors over corners when docked along a viewport edge (021-F bottom flatten).
+	local cx = abs_x + w / 2
+	local cy = abs_y + h / 2
+	local edge_band_x = math.max(48, math.floor(vw * 0.18))
+	local edge_band_y = math.max(48, math.floor(vh * 0.18))
+	local near_b = (abs_y + h) >= (vh - thresh)
+	local near_t = abs_y <= thresh
+	local near_l = abs_x <= thresh
+	local near_r = (abs_x + w) >= (vw - thresh)
+
+	local function pick_edge(edge, corner_a, corner_b)
+		if not allowed_anchor(edge) then
+			return best
+		end
+		if edge == "bottom" or edge == "top" then
+			if cx >= edge_band_x and cx <= (vw - edge_band_x) then
+				return edge
+			end
+			if edge == "bottom" and near_b and near_l and not near_r and cx < edge_band_x and allowed_anchor(corner_a) then
+				return corner_a
+			end
+			if edge == "bottom" and near_b and near_r and not near_l and cx > (vw - edge_band_x) and allowed_anchor(corner_b) then
+				return corner_b
+			end
+		end
+		if edge == "left" or edge == "right" then
+			if cy >= edge_band_y and cy <= (vh - edge_band_y) then
+				return edge
+			end
+		end
+		return best
+	end
+
+	if near_b then
+		best = pick_edge("bottom", "bottom-left", "bottom-right")
+	elseif near_t then
+		best = pick_edge("top", "top-left", "top-right")
+	elseif near_l and not near_r then
+		best = pick_edge("left", "top-left", "bottom-left")
+	elseif near_r and not near_l then
+		best = pick_edge("right", "top-right", "bottom-right")
+	end
+
 	local bx, by = base(best)
 	return best, abs_x - bx, abs_y - by
 end
@@ -245,6 +289,37 @@ local function placement_for_drag(ctx, abs_x, abs_y)
 		y = math.floor(abs_y - by + 0.5),
 		keep_in_view = true,
 	}
+end
+
+--- Merge handler placement patch (e.g. sticky snap anchor) into adapt ctx.
+local function adapt_ctx_merge_patch_placement(ctx, placement_patch)
+	if type(placement_patch) ~= "table" then
+		return ctx
+	end
+	local pl = {}
+	if type(ctx.placement) == "table" then
+		for k, v in pairs(ctx.placement) do
+			pl[k] = v
+		end
+	end
+	for k, v in pairs(placement_patch) do
+		pl[k] = v
+	end
+	local out = {}
+	for k, v in pairs(ctx) do
+		out[k] = v
+	end
+	out.placement = pl
+	return out
+end
+
+--- 021-E: variant accents follow snapped anchor; orientation/geometry keep engine region+kind.
+local function adapt_ctx_variant_from_anchor(ctx, placement_patch)
+	local out = adapt_ctx_merge_patch_placement(ctx, placement_patch)
+	if type(placement_patch) == "table" and type(placement_patch.anchor) == "string" and type(out.placement) == "table" then
+		out.placement.variant_region = placement_patch.anchor
+	end
+	return out
 end
 
 local function merge_style_patches(a, b)
@@ -314,7 +389,13 @@ local function make_handler_with_adapt(root_id, opts, allowed_anchors, sticky, a
 		end
 		diag_021(ctx, "adapt_pre " .. root_id, opts)
 		if core.rmlui_adapt_instrument then
-			local ap = core.rmlui_adapt_instrument(ctx, root_id, adapt_cfg)
+			local adapt_ctx = ctx
+			local adaptive = adapt_cfg.adaptive
+			if type(patch) == "table" and type(patch.placement) == "table" and adaptive and adaptive.variant_from_anchor then
+				adapt_ctx = adapt_ctx_merge_patch_placement(ctx, patch.placement)
+				adapt_ctx = adapt_ctx_variant_from_anchor(adapt_ctx, patch.placement)
+			end
+			local ap = core.rmlui_adapt_instrument(adapt_ctx, root_id, adapt_cfg)
 			if ap then
 				diag_021(ctx, "adapt_post " .. root_id, opts, ap)
 				patch = merge_style_patches(patch, ap)
@@ -425,6 +506,7 @@ local function start_for_player(player)
 
 		core.chat_send_player(name, "[testui] TEST_021: Six HUD surfaces (A–C resize, D–F adaptation). Instrument mode on; ESC exits.")
 		core.chat_send_player(name, "[testui] TEST_021: A–C = aspect / square / free resize. D–F = drag or resize end → 9-way region → orientation + variant.")
+		core.chat_send_player(name, "[testui] TEST_021: E = corner/edge tint + borders after snap. F = same hotbar adapt as D.")
 		core.chat_send_player(name, "[testui] TEST_021: Verify placement.region/kind stable; no adaptation during drag_move (only drag_end / resize_end).")
 
 		local all_anchors = {
@@ -439,14 +521,71 @@ local function start_for_player(player)
 			"right",
 		}
 
-		local geom_hotbar = {
+		-- 021-D: edge horizontal / vertical only (no corner wrap).
+		local geom_hotbar_edges = {
 			horizontal = {
 				root = { width = "240px", min_height = "104px", height = "auto" },
-				elements = { bar = { width = "100%", min_height = "40px" } },
+				elements = {
+					bar = {
+						width = "100%",
+						flex = "0",
+						["min-width"] = "0",
+						min_height = "40px",
+						["flex-wrap"] = "nowrap",
+						["max-width"] = "none",
+					},
+				},
 			},
 			vertical = {
 				root = { width = "120px", min_height = "240px", height = "auto" },
-				elements = { bar = { width = "100%", flex = "1", min_width = "40px", min_height = "0px" } },
+				elements = {
+					bar = {
+						width = "100%",
+						flex = "1",
+						min_width = "40px",
+						min_height = "0px",
+						["flex-wrap"] = "nowrap",
+						["max-width"] = "none",
+					},
+				},
+			},
+		}
+
+		local adapt_e_variant_styles = {
+			corner_nw = {
+				["border-left"] = "4px #f90",
+				["border-top"] = "4px #f90",
+				["border-radius"] = "10px 4px 4px 4px",
+				background_color = "#3a2810",
+			},
+			corner_ne = {
+				["border-right"] = "4px #f90",
+				["border-top"] = "4px #f90",
+				["border-radius"] = "4px 10px 4px 4px",
+				background_color = "#3a2810",
+			},
+			corner_sw = {
+				["border-left"] = "4px #f90",
+				["border-bottom"] = "4px #f90",
+				["border-radius"] = "4px 4px 4px 10px",
+				background_color = "#3a2810",
+			},
+			corner_se = {
+				["border-right"] = "4px #f90",
+				["border-bottom"] = "4px #f90",
+				["border-radius"] = "4px 4px 10px 4px",
+				background_color = "#3a2810",
+			},
+			edge_top = { ["border-top"] = "3px #6cf", background_color = "#1a2a3a" },
+			edge_bottom = { ["border-bottom"] = "3px #6cf", background_color = "#1a2a3a" },
+			edge_left = { ["border-left"] = "3px #6cf", background_color = "#1a2a3a" },
+			edge_right = { ["border-right"] = "3px #6cf", background_color = "#1a2a3a" },
+			center = {
+				["border-left"] = "2px #8a9",
+				["border-right"] = "2px #8a9",
+				["border-top"] = "2px #8a9",
+				["border-bottom"] = "2px #8a9",
+				background_color = "#1a2430",
 			},
 		}
 
@@ -468,7 +607,7 @@ local function start_for_player(player)
 				enabled = true,
 				orientation = { mode = "auto", map = orient_mixed, require_edge_for_side = true },
 				variant = {},
-				geometry = geom_hotbar,
+				geometry = geom_hotbar_edges,
 			},
 			elements = { bar = "test_021_d_bar" },
 		}
@@ -477,7 +616,8 @@ local function start_for_player(player)
 			adaptive = {
 				enabled = true,
 				orientation = { mode = "fixed", fixed = "horizontal" },
-				variant = {},
+				variant_from_anchor = true,
+				variant = { styles = adapt_e_variant_styles },
 			},
 		}
 
@@ -485,8 +625,8 @@ local function start_for_player(player)
 			adaptive = {
 				enabled = true,
 				orientation = { mode = "auto", map = orient_mixed, require_edge_for_side = true },
-				variant = {},
-				geometry = geom_hotbar,
+				variant = { enabled = false },
+				geometry = geom_hotbar_edges,
 			},
 			elements = { bar = "test_021_f_bar" },
 		}
@@ -689,9 +829,8 @@ local function start_for_player(player)
 			content = adaptive_hotbar_content(
 				"test_021_f_root",
 				"test_021_f_bar",
-				"021-F mixed",
-				"Like D: vertical bar only when region is left/right; corners stay horizontal. "
-					.. "Corner snake / multi-segment wrap is not implemented."
+				"021-F hotbar (same as D)",
+				"Same orientation + geometry policy as 021-D."
 			),
 		})
 	end)

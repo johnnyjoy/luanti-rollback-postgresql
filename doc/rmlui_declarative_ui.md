@@ -1,5 +1,10 @@
 ## Declarative RmlUi (experimental)
 
+> **Documentation moved.** The authoritative doc set is under [`docs/`](../docs/ui-index.md):
+> start at [`docs/ui-index.md`](../docs/ui-index.md) (architecture, API contract, bridge, usage, validation).
+> Long-range product vision: [`memory-bank/engine-proposal-unified-ui-next.md`](../memory-bank/engine-proposal-unified-ui-next.md).
+> This file is kept for the **shadow / `box-shadow`** note below.
+
 This branch contains an experimental declarative UI bridge built on top of RmlUi surfaces (`core.ui.panel`, `core.ui.modal`).
 
 ### Shadow support (important)
